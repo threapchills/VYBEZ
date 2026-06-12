@@ -1,11 +1,15 @@
 import { Application } from 'pixi.js';
 import { loadAssets } from './assets/loader';
+import { Engine } from './audio/engine';
+import { Conductor } from './conductor/conductor';
 import { Rng, sessionSeed } from './core/rng';
+import { createSession } from './core/session';
 import { buildScene } from './visuals/scene';
 
 // Boot: seed the session, load and validate the art, raise the valley.
-// Audio arrives in phase 1; the ignition gesture will start the AudioContext
-// then. Nothing persists between sessions; ephemerality is a feature.
+// The first tap on the fire is the only onboarding: it ignites the scene,
+// unlocks the AudioContext and starts the conductor. Nothing persists
+// between sessions; ephemerality is a feature.
 
 async function boot(): Promise<void> {
   const mount = document.getElementById('valley');
@@ -13,6 +17,7 @@ async function boot(): Promise<void> {
 
   const seed = sessionSeed();
   const rng = new Rng(seed);
+  const session = createSession(rng.fork('session'));
 
   const app = new Application();
   await app.init({
@@ -34,7 +39,21 @@ async function boot(): Promise<void> {
     console.warn(`${assets.placeholderCount()} assets running on placeholders`);
   }
 
-  buildScene(app, assets, rng.fork('scene'));
+  const handles = buildScene(app, assets, session);
+
+  // The ignition gesture doubles as the browser's audio unlock. The pointer
+  // module takes ownership of all interaction in phase 3.
+  const engine = new Engine(rng.fork('audio'));
+  const conductor = new Conductor(session, rng.fork('conductor'));
+  let audioStarted = false;
+  handles.fire.on('pointertap', () => {
+    if (audioStarted) return;
+    audioStarted = true;
+    engine
+      .unlock()
+      .then(() => conductor.start(() => engine.now()))
+      .catch((err: unknown) => console.error('audio failed to wake:', err));
+  });
 }
 
 boot().catch((err: unknown) => {

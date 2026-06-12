@@ -29,6 +29,17 @@ TypeScript strict, Vite, PixiJS v8, Vitest. No other runtime dependencies.
 - Pixi's `resizeTo` does not reliably measure on init; `main.ts` calls `app.resize()` once after mounting. Keep this if touching boot.
 - `__PIXI_APP__` is exposed on globalThis for devtools and QA probes.
 
+## Phase 1 decisions
+
+- Subagent orchestration is suspended: the phase 0 review tripped Mike's monthly agent spend limit, so subsequent phases are built in the main thread until that eases.
+- The worklet bundles via `?worker&url` with `worker.format: 'es'`; the emitted chunk resolves relative to the index chunk, which survives the Pages subpath. Keep both halves if touching the build.
+- Session parameters (`src/core/session.ts`) derive once from the seed and are shared by scene and conductor: the moon the player sees is the root the valley plays.
+- Phase 1 voices: Root is Karplus-Strong with a pick-position comb over a sine sub layer; the Drum is a pitched kick, a two-mode membrane snare with SVF noise, and a tom. The full patch architecture and modal banks arrive in phase 2; the patch JSONs currently carry macro scalars only.
+- Drum and Root play regardless of the sleeper subset; sleep gating joins the pattern system with the controls in phase 3.
+- Master bus: tape saturation (2x oversampled) into lowpass tone into dry plus generated-IR fog (3.5 s, seeded), then compressor and soft clip. Global wow and flutter join the bus with the melodic voices; phase 1 carries seeded per-voice detune and per-note micro-variation instead.
+- The conductor's grid starts 0.1 s after ignition; jitter is measured from that grid. Voice restarts ride a 1.5 ms (string) or 0.5 ms (drum) onset ramp instead of steal fades, which phase 2 will revisit when polyphony pressure is real.
+- Hungarian minor's iv-drone (degree 5) sits outside the scale set deliberately, exactly as the handoff tables it.
+
 ## Style covenant
 
 British spelling. Sentence case headings. No em dashes anywhere: use colons, semicolons, en dashes with spaces, or hyphens. Plain verbs in user-facing strings. The only in-fiction caption is "stoke the fire". No persistence of any kind; the valley keeps its secrets.

@@ -2,7 +2,7 @@ import { Application, ColorMatrixFilter, Container, Sprite, Text } from 'pixi.js
 import type { AssetLibrary } from '../assets/loader';
 import type { SpiritId } from '../core/contracts';
 import { PLAYABLE_SPIRITS } from '../core/contracts';
-import type { Rng } from '../core/rng';
+import type { Session } from '../core/session';
 
 // Phase 0 scene: the painted valley assembled in world space, dim and
 // desaturated until the fire is stoked. Parallax, particles and onset-locked
@@ -35,13 +35,13 @@ const FIRE_SPOT = { x: 1920, y: 1030 };
 export interface SceneHandles {
   world: Container;
   spirits: Map<SpiritId, Sprite>;
-  asleep: Set<SpiritId>;
+  asleep: ReadonlySet<SpiritId>;
   fire: Sprite;
   ignite: () => void;
   ignited: boolean;
 }
 
-export function buildScene(app: Application, assets: AssetLibrary, rng: Rng): SceneHandles {
+export function buildScene(app: Application, assets: AssetLibrary, session: Session): SceneHandles {
   const world = new Container();
   app.stage.addChild(world);
 
@@ -52,7 +52,7 @@ export function buildScene(app: Application, assets: AssetLibrary, rng: Rng): Sc
   const moon = Sprite.from(assets.get('moon.png').texture);
   moon.anchor.set(0.5);
   moon.scale.set(0.8);
-  placeMoon(moon, rng.int(0, 11));
+  placeMoon(moon, session.moonPosition);
   world.addChild(moon);
 
   world.addChild(Sprite.from(assets.get('bg_01_far_ridge.png').texture));
@@ -80,11 +80,9 @@ export function buildScene(app: Application, assets: AssetLibrary, rng: Rng): Sc
   censer.position.set(2660, 620);
   actors.addChild(censer);
 
-  // The seeded sleepers: 2 to 4 spirits begin asleep, and at least one of
-  // Root or Breath stays awake so the valley keeps its tonal anchor.
-  const anchor = rng.pick(['root', 'breath'] as const);
-  const candidates = PLAYABLE_SPIRITS.filter((id) => id !== anchor);
-  const asleep = new Set<SpiritId>(rng.shuffle(candidates).slice(0, rng.int(2, 4)));
+  // The seeded sleepers come from the shared session, so what the player sees
+  // matches what the conductor plays.
+  const asleep = session.asleep;
 
   const spirits = new Map<SpiritId, Sprite>();
   for (const id of PLAYABLE_SPIRITS) {
