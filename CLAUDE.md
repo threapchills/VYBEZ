@@ -67,6 +67,18 @@ TypeScript strict, Vite, PixiJS v8, Vitest. No other runtime dependencies.
 - Palette is wired: the conductor broadcasts `palette` on totem/moon/fire changes; the scene grades the whole world with a ColorMatrix hue rotation clamped to +-25 degrees (`palette.ts`) plus a fire-driven brightness and saturation lift, and feeds the particle accent tint. The ignite grade hands the filter over to the palette grade once lit.
 - Parallax is a slow sine ping-pong, depth-scaled per layer (sky 18 to foreground 190 world units), with the moon drifting a little; the camera breathes 1.0 to 1.015 with the fire; Drum and Root onsets nudge the foreground with a spring return. All of this stills under prefers-reduced-motion, but onset animation and particles stay.
 
+## Phase 5 decisions
+
+- Autonomous evolution lives in the conductor's `evolve(bar, turn)`, driven by a dedicated `driftRng` fork kept off the music streams so the played notes stay deterministic. At every section turn one or two patterns reseed (the slow structural breath, runs even in stillness). On breeze (wind 1), every 8 bars a continuous macro may drift a small seeded step (a busyness, a timbre, or the fire) and an awake spirit may reseed; on gale (wind 2), additionally the moon may shift and, rarely, the totem clicks. The valley plays itself by publishing the same `control` events a finger would, so audio, visuals and the conductor all answer through one path.
+- Still freezes drift; only section-turn reseeding remains. Stillness publishes no autonomous control (unit-tested), so a still valley is reproducible.
+- Graceful sleep (covenant rule 7): wake intent flips immediately (and the visual transition plays at once) but an audible `presence` per spirit eases 0 to 1 over two bars. `emit()` applies it: rhythmic notes thin probabilistically, swells just soften, so a part dissolves musically. A spirit sounds while presence exceeds a floor, then stops.
+- The World (covenant rule 8) is a continuous `WorldVoice` in the worklet, always rendered after the seven: quiet stereo-decorrelated wind noise, a distant low rumble under a slow swell, and sparse ember crackle, all scaled by the wind state the engine forwards. There is never dead air, even with all seven asleep.
+- Talisman drift needs the conductor to track its own copy of each timbre value (it walks then publishes `timbre:<id>`, which the engine renders); busyness and fire it reads back from its own state.
+
+## Phase 6 remaining
+
+Polish only: FX bus fine-tuning, mobile touch and layout crop, a performance pass and CPU budget check, the reduced-motion and ignition niceties, the mute icon, and dialling the patch macros in by ear with the rig. Known debt carried from earlier phases: voice stealing restarts immediately rather than riding the 5 ms steal fade (the onset ramp still declicks).
+
 ## Style covenant
 
 British spelling. Sentence case headings. No em dashes anywhere: use colons, semicolons, en dashes with spaces, or hyphens. Plain verbs in user-facing strings. The only in-fiction caption is "stoke the fire". No persistence of any kind; the valley keeps its secrets.

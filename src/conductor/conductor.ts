@@ -1,4 +1,5 @@
 import { bus } from '../core/bus';
+import { PLAYABLE_SPIRITS } from '../core/contracts';
 import type { NoteEvent, SpiritId } from '../core/contracts';
 import type { Rng } from '../core/rng';
 import type { Session } from '../core/session';
@@ -47,26 +48,38 @@ export class Conductor {
   private rootPc: number;
   private scaleIndex: number;
   private harmony: HarmonyChain;
-  /** Live wake state, seeded from the session and toggled by tapping spirits. */
+  /** Intended wake state, seeded from the session and toggled by tapping. */
   private readonly asleepNow: Set<SpiritId>;
+  /**
+   * Audible presence 0 to 1 per spirit; waking and sleeping ramp it over two
+   * bars so patterns thin in and out rather than snapping (covenant rule 7).
+   */
+  private readonly presence: Record<string, number> = {};
   /** Tracked so palette broadcasts carry the current fire. */
   private fire: number;
+  /** Still 0, breeze 1, gale 2; drives autonomous drift in phase 5. */
+  private wind = 0;
+  /** The conductor's own copy of each talisman position, so drift can walk it. */
+  private readonly timbre: Record<string, number> = {};
+  /** A dedicated stream for the wind's slow walks, kept off the music streams. */
+  private readonly driftRng: Rng;
 
   private chordDegree = 0;
   private chordPcs: number[];
   private scalePcs: number[];
   private chordChangeBars = 2;
 
-  /** Seeded busyness defaults; the body drag takes these over in phase 3. */
+  /** Seeded busyness defaults; the body drag and the wind move them. */
   private readonly busy: Record<string, number> = {};
   /** Phrase arc phase offsets, one per spirit, so nobody breathes in unison. */
   private readonly arcPhase: Record<string, number> = {};
 
-  private readonly kicks: boolean[];
-  private readonly rootCycleSlots: number;
-  private readonly rattlePattern: boolean[];
-  private readonly spinnerGate: boolean[];
-  private readonly spinnerShape: SpinnerShape;
+  // Patterns are reseeded by the wind and at section turns, so not readonly.
+  private kicks: boolean[];
+  private rootCycleSlots: number;
+  private rattlePattern: boolean[];
+  private spinnerGate: boolean[];
+  private spinnerShape: SpinnerShape;
   private spinnerIdx = 0;
   private spinnerDir = 1;
 
@@ -88,6 +101,7 @@ export class Conductor {
     this.chordPcs = chordTones(this.scaleIndex, this.rootPc, 0);
     this.scalePcs = scaleTones(this.scaleIndex, this.rootPc);
     this.asleepNow = new Set(session.asleep);
+    this.driftRng = rng.fork('drift');
 
     this.kicks = rotate(euclid(rng.pick([5, 7]), 16), rng.int(0, 15));
     this.rootCycleSlots = rng.pick([3, 4, 6]) * SLOTS_PER_BEAT;
@@ -96,12 +110,12 @@ export class Conductor {
     this.spinnerGate = euclid(rng.int(9, 13), 16);
     this.spinnerShape = rng.pick(['rise', 'fall', 'pendulum', 'orbit'] as const);
 
-    for (const id of PRIORITY) {
+    for (const id of [...PRIORITY, 'breath'] as SpiritId[]) {
       this.busy[id] = rng.range(0.45, 0.7);
+      this.timbre[id] = rng.range(0.3, 0.7);
       this.arcPhase[id] = rng.next();
+      this.presence[id] = this.asleepNow.has(id) ? 0 : 1;
     }
-    this.busy['breath'] = rng.range(0.45, 0.7);
-    this.arcPhase['breath'] = rng.next();
   }
 
   start(now: () => number): void {
@@ -127,8 +141,9 @@ export class Conductor {
     }
   }
 
-  private awake(id: SpiritId): boolean {
-    return !this.asleepNow.has(id);
+  /** A spirit sounds while it has any presence, so it can fade out gracefully. */
+  private sounds(id: SpiritId): boolean {
+    return (this.presence[id] ?? 0) > 0.001;
   }
 
   /**
@@ -163,7 +178,7 @@ export class Conductor {
       return;
     }
     if (target === 'wind') {
-      // Wind drives autonomous drift; the conductor owns that in phase 5.
+      this.wind = Math.round(value);
       return;
     }
     const colon = target.indexOf(':');
@@ -172,11 +187,14 @@ export class Conductor {
     const id = target.slice(colon + 1) as SpiritId;
     if (kind === 'busy') {
       this.busy[id] = Math.max(0, Math.min(1, value));
+    } else if (kind === 'timbre') {
+      this.timbre[id] = Math.max(0, Math.min(1, value));
     } else if (kind === 'wake') {
       const wantAwake = value >= 0.5;
+      // Intent flips at once; presence ramps over two bars so the part thins
+      // in or out rather than snapping. The visual transition plays off this.
       if (wantAwake) this.asleepNow.delete(id);
       else this.asleepNow.add(id);
-      // The visual layer plays the wake or sleep animation off this.
       bus.publish('wake', { spirit: id, awake: wantAwake });
     }
   }
@@ -209,12 +227,12 @@ export class Conductor {
 
     if (inBar === 0) this.onBar(bar, time, pending);
 
-    if (this.awake('drum')) this.scheduleDrum(inBar, bar, time, pending);
-    if (this.awake('root')) this.scheduleRoot(slot, time, pending);
-    if (this.awake('rattle')) this.scheduleRattle(slot, inBar, bar, time, pending);
-    if (this.awake('voice')) this.scheduleVoice(slot, inBar, bar, time, pending);
-    if (this.awake('echo')) this.scheduleEcho(slot, inBar, time, pending);
-    if (this.awake('spinner')) this.scheduleSpinner(slot, bar, time, pending);
+    if (this.sounds('drum')) this.scheduleDrum(inBar, bar, time, pending);
+    if (this.sounds('root')) this.scheduleRoot(slot, time, pending);
+    if (this.sounds('rattle')) this.scheduleRattle(slot, inBar, bar, time, pending);
+    if (this.sounds('voice')) this.scheduleVoice(slot, inBar, bar, time, pending);
+    if (this.sounds('echo')) this.scheduleEcho(slot, inBar, time, pending);
+    if (this.sounds('spinner')) this.scheduleSpinner(slot, bar, time, pending);
 
     this.voiceNotes.delete(slot - SLOTS_PER_BAR * 2);
 
@@ -226,6 +244,13 @@ export class Conductor {
   private onBar(bar: number, time: number, pending: NoteEvent[]): void {
     const barInSection = bar % this.session.sectionBars;
     const turn = barInSection === 0;
+
+    // Presence eases toward intent over two bars (covenant rule 7).
+    for (const id of PLAYABLE_SPIRITS) {
+      const target = this.asleepNow.has(id) ? 0 : 1;
+      const cur = this.presence[id] ?? 0;
+      this.presence[id] = cur + Math.max(-0.5, Math.min(0.5, target - cur));
+    }
 
     if (turn) {
       this.chordChangeBars = this.rng.pick([2, 4]);
@@ -244,14 +269,15 @@ export class Conductor {
       turn,
     });
 
-    if (this.awake('breath')) {
+    if (this.sounds('breath')) {
       // Drones on root and fifth; a riser leans into every section turn.
       if (chordChanged || turn) {
         const dur = this.chordChangeBars * SLOTS_PER_BAR * this.slotDur;
         const dronePc = (this.rootPc + this.chordDegree) % 12;
         const droneMidi = this.intoLane(36 + dronePc, LANES.breath);
-        pending.push(this.swell('breath', time, 0.5, dur, 'drone', droneMidi));
-        pending.push(
+        this.emit(pending, this.swell('breath', time, 0.5, dur, 'drone', droneMidi));
+        this.emit(
+          pending,
           this.swell(
             'breath',
             time,
@@ -263,15 +289,86 @@ export class Conductor {
         );
       }
       if (barInSection === this.session.sectionBars - 1) {
-        pending.push(this.swell('breath', time, 0.55, SLOTS_PER_BAR * this.slotDur, 'riser'));
+        this.emit(pending, this.swell('breath', time, 0.55, SLOTS_PER_BAR * this.slotDur, 'riser'));
       }
+    }
+
+    if (bar > 0) this.evolve(bar, turn);
+  }
+
+  /**
+   * The wind, precisely. On breeze, every 8 bars a continuous macro may drift a
+   * small seeded step and an awake spirit may reseed. On gale, the moon may
+   * shift and, rarely, the totem clicks: the valley plays itself. At every
+   * section turn a minority of patterns reseed so the piece never settles. Still
+   * (wind 0) freezes all of it; only section-turn reseeding remains, the slow
+   * structural breath the brief asks every section to take.
+   */
+  private evolve(bar: number, turn: boolean): void {
+    if (turn) {
+      const n = this.driftRng.int(1, 2);
+      for (let i = 0; i < n; i++) this.reseedPattern(this.driftRng.pick(PLAYABLE_SPIRITS));
+    }
+    if (this.wind >= 1 && bar % 8 === 0) {
+      if (this.driftRng.chance(0.2)) this.driftMacro();
+      if (this.driftRng.chance(0.1)) this.reseedPattern(this.driftRng.pick(PLAYABLE_SPIRITS));
+    }
+    if (this.wind >= 2 && bar % 8 === 0) {
+      if (this.driftRng.chance(0.15)) {
+        const step = this.driftRng.chance(0.5) ? 1 : 11;
+        bus.publish('control', { target: 'moon', value: (this.rootPc + step) % 12 });
+      }
+      if (this.driftRng.chance(0.05)) {
+        bus.publish('control', { target: 'totem', value: (this.scaleIndex + 1) % 7 });
+      }
+    }
+  }
+
+  /** Walk one continuous macro a small step and publish it on the control bus. */
+  private driftMacro(): void {
+    const id = this.driftRng.pick(PLAYABLE_SPIRITS);
+    const which = this.driftRng.int(0, 2);
+    const walk = this.driftRng.range(-0.15, 0.15);
+    if (which === 0) {
+      const v = clamp01((this.busy[id] ?? 0.5) + walk);
+      bus.publish('control', { target: `busy:${id}`, value: v });
+    } else if (which === 1) {
+      const v = clamp01((this.timbre[id] ?? 0.5) + walk);
+      this.timbre[id] = v;
+      bus.publish('control', { target: `timbre:${id}`, value: v });
+    } else {
+      const v = Math.max(0.35, Math.min(1, this.fire + walk));
+      bus.publish('control', { target: 'fire', value: v });
+    }
+  }
+
+  private reseedPattern(id: SpiritId): void {
+    const d = this.driftRng;
+    switch (id) {
+      case 'drum':
+        this.kicks = rotate(euclid(d.pick([5, 7]), 16), d.int(0, 15));
+        break;
+      case 'root':
+        this.rootCycleSlots = d.pick([3, 4, 6]) * SLOTS_PER_BEAT;
+        break;
+      case 'rattle':
+        this.rattlePattern = rotate(euclid(d.int(4, 7), 12), d.int(0, 11));
+        break;
+      case 'spinner':
+        this.spinnerGate = euclid(d.int(9, 13), 16);
+        this.spinnerShape = d.pick(['rise', 'fall', 'pendulum', 'orbit'] as const);
+        break;
+      default:
+        // The free voices reseed their phrasing by shifting their arc phase.
+        this.arcPhase[id] = d.next();
     }
   }
 
   private scheduleDrum(inBar: number, bar: number, time: number, pending: NoteEvent[]): void {
     const jitter = this.rng.range(-DRUM_JITTER_S, DRUM_JITTER_S);
     if (inBar === SLOTS_PER_BEAT || inBar === SLOTS_PER_BEAT * 3) {
-      pending.push(
+      this.emit(
+        pending,
         this.note('drum', time + jitter, 0.7 + this.rng.range(-0.05, 0.05), 0.2, 'snare'),
       );
       return;
@@ -279,10 +376,10 @@ export class Conductor {
     if (this.kicks[inBar % 16]) {
       const vel =
         inBar === 0 ? 0.95 : 0.6 + 0.25 * this.arc('drum', bar) + this.rng.range(-0.08, 0.08);
-      pending.push(this.note('drum', time + jitter, Math.min(1, vel), 0.3, 'kick'));
+      this.emit(pending, this.note('drum', time + jitter, Math.min(1, vel), 0.3, 'kick'));
     }
     if (inBar === 14 && this.rng.chance(0.2 * this.arc('drum', bar))) {
-      pending.push(this.note('drum', time + jitter, 0.55, 0.25, 'tom'));
+      this.emit(pending, this.note('drum', time + jitter, 0.55, 0.25, 'tom'));
     }
   }
 
@@ -294,7 +391,8 @@ export class Conductor {
     const midi = this.intoLane(24 + ((this.rootPc + this.chordDegree) % 12) + interval, LANES.root);
     const duration = this.rootCycleSlots * this.slotDur * 0.85;
     const jitter = this.rng.range(-JITTER_S, JITTER_S);
-    pending.push(
+    this.emit(
+      pending,
       this.note('root', time + jitter, 0.75 + this.rng.range(-0.06, 0.06), duration, 'pluck', midi),
     );
   }
@@ -316,7 +414,10 @@ export class Conductor {
     const pc = this.rng.pick(this.scalePcs);
     const midi = this.intoLane(60 + pc, LANES.rattle);
     const jitter = this.rng.range(-JITTER_S, JITTER_S);
-    pending.push(this.note('rattle', time + jitter, vel, 0.15, ghost ? 'ghost' : 'hit', midi));
+    this.emit(
+      pending,
+      this.note('rattle', time + jitter, vel, 0.15, ghost ? 'ghost' : 'hit', midi),
+    );
   }
 
   private scheduleVoice(
@@ -349,7 +450,8 @@ export class Conductor {
     const durSlots = this.rng.pick(strong ? [2, 3, 4] : [1, 2]);
     const vel = 0.5 + 0.3 * this.arc('voice', bar) + this.rng.range(-0.05, 0.05);
     const jitter = this.rng.range(-JITTER_S, JITTER_S);
-    pending.push(
+    this.emit(
+      pending,
       this.note('voice', time + jitter, Math.min(1, vel), durSlots * this.slotDur, 'lead', midi),
     );
   }
@@ -361,8 +463,11 @@ export class Conductor {
     if (this.voiceSilentSlots > SLOTS_PER_BAR && inBar === 0) {
       const root = this.intoLane(48 + (this.chordPcs[0] ?? 0), LANES.echo);
       const dur = SLOTS_PER_BAR * this.slotDur;
-      pending.push(this.note('echo', time, 0.4, dur, 'dyad', root));
-      pending.push(this.note('echo', time, 0.32, dur, 'dyad', this.intoLane(root + 7, LANES.echo)));
+      this.emit(pending, this.note('echo', time, 0.4, dur, 'dyad', root));
+      this.emit(
+        pending,
+        this.note('echo', time, 0.32, dur, 'dyad', this.intoLane(root + 7, LANES.echo)),
+      );
       return;
     }
 
@@ -422,7 +527,8 @@ export class Conductor {
     }
     const midi = midis[this.spinnerIdx] as number;
     const jitter = this.rng.range(-JITTER_S, JITTER_S);
-    pending.push(
+    this.emit(
+      pending,
       this.note(
         'spinner',
         time + jitter,
@@ -532,4 +638,30 @@ export class Conductor {
   ): NoteEvent {
     return this.note(spirit, time, velocity, duration, articulation, midi);
   }
+
+  /**
+   * Apply presence before a note reaches the bus. At full presence the note
+   * passes untouched; mid-fade, rhythmic notes thin probabilistically while
+   * swells simply soften, so a part dissolves musically rather than cutting.
+   */
+  private emit(pending: NoteEvent[], note: NoteEvent): void {
+    const p = this.presence[note.spirit] ?? 1;
+    if (p >= 0.999) {
+      pending.push(note);
+      return;
+    }
+    if (p <= 0.001) return;
+    if (SWELLS.has(note.articulation ?? '')) {
+      note.velocity *= p;
+      pending.push(note);
+      return;
+    }
+    if (this.driftRng.next() > p) return;
+    note.velocity *= 0.5 + 0.5 * p;
+    pending.push(note);
+  }
+}
+
+function clamp01(v: number): number {
+  return Math.max(0, Math.min(1, v));
 }

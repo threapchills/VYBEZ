@@ -163,15 +163,40 @@ describe('conductor', () => {
     expect(sections.at(-1)?.chordRoot).toBe(5);
   });
 
-  it('waking and sleeping a spirit announces it and gates its notes', () => {
+  it('sleeping a spirit announces it and fades it out gracefully', () => {
     const wakes: Array<{ spirit: string; awake: boolean }> = [];
     offs.push(bus.subscribe('wake', (e) => wakes.push(e)));
     const rng = new Rng(8);
     const session = createSession(rng.fork('session'));
     const conductor = new Conductor(session, rng.fork('conductor'));
-    conductor.handleControl({ target: 'wake:drum', value: 0 }); // the drum is always awake
-    for (let t = 0; t < 4; t += 0.025) conductor.tick(t);
+    conductor.handleControl({ target: 'wake:drum', value: 0 }); // the drum starts awake
+    for (let t = 0; t < 20; t += 0.025) conductor.tick(t);
+    // The sleep is announced at once for the visual transition.
     expect(wakes.some((w) => w.spirit === 'drum' && !w.awake)).toBe(true);
-    expect(notes.some((n) => n.spirit === 'drum')).toBe(false);
+    // It thins over two bars, then falls silent: nothing in the last stretch.
+    const late = notes.filter((n) => n.spirit === 'drum' && n.time > 12);
+    expect(late.length).toBe(0);
+  });
+
+  it('a gale makes the valley play itself', () => {
+    const controls: Array<{ target: string }> = [];
+    offs.push(bus.subscribe('control', (e) => controls.push(e)));
+    const rng = new Rng(4);
+    const session = createSession(rng.fork('session'));
+    const conductor = new Conductor(session, rng.fork('conductor'));
+    conductor.handleControl({ target: 'wind', value: 2 }); // gale
+    for (let t = 0; t < 240; t += 0.025) conductor.tick(t);
+    expect(controls.length).toBeGreaterThan(0);
+  });
+
+  it('stillness publishes no autonomous control', () => {
+    const controls: Array<{ target: string }> = [];
+    offs.push(bus.subscribe('control', (e) => controls.push(e)));
+    const rng = new Rng(4);
+    const session = createSession(rng.fork('session'));
+    const conductor = new Conductor(session, rng.fork('conductor'));
+    // Wind defaults to still; the valley should only evolve when asked to.
+    for (let t = 0; t < 240; t += 0.025) conductor.tick(t);
+    expect(controls.length).toBe(0);
   });
 });

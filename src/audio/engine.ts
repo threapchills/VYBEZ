@@ -106,10 +106,13 @@ export class Engine {
       this.node?.port.postMessage({ type: 'note', ...e, when: e.time });
     });
 
-    // The fire opens the master tone; the talismans morph each voice's timbre.
+    // The fire opens the master tone; the talismans morph each voice's timbre;
+    // the wind drives the World bed.
     bus.subscribe('control', (e) => {
       if (e.target === 'fire') {
         this.setToneOpenness((e.value - 0.35) / 0.65);
+      } else if (e.target === 'wind') {
+        this.node?.port.postMessage({ type: 'world', wind: Math.round(e.value) });
       } else if (e.target.startsWith('timbre:')) {
         this.setTimbre(e.target.slice('timbre:'.length) as SpiritId, e.value);
       }

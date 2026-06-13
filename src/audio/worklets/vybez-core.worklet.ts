@@ -102,7 +102,12 @@ interface PatchUpdateMessage {
   patch: Record<string, number>;
 }
 
-type InMessage = NoteMessage | PatchesMessage | PatchUpdateMessage;
+interface WorldMessage {
+  type: 'world';
+  wind: number;
+}
+
+type InMessage = NoteMessage | PatchesMessage | PatchUpdateMessage | WorldMessage;
 
 interface QueuedNote extends NoteMessage {
   startFrame: number;
@@ -733,6 +738,72 @@ class WavetableVoice extends Voice {
   }
 }
 
+/**
+ * The World: a hidden eighth voice that always plays, even when all seven
+ * sleep, so the valley never falls into dead air. Quiet wind noise, a distant
+ * low rumble, and rare ember crackle, all scaled by the wind state.
+ */
+class WorldVoice {
+  private rng: WorkletRng;
+  private windLpL = 0;
+  private windLpR = 0;
+  private rumblePhase = 0;
+  private rumbleLfo = 0;
+  private crackleLife = 0;
+  private crackleAmp = 0;
+  private crackleLp = 0;
+  private nextCrackle: number;
+  private wind = 0;
+
+  constructor(seed: number) {
+    this.rng = new WorkletRng(seed >>> 0);
+    this.nextCrackle = this.rng.range(0.5, 2) * sampleRate;
+  }
+
+  reseed(seed: number): void {
+    this.rng = new WorkletRng(seed >>> 0);
+  }
+
+  setWind(w: number): void {
+    this.wind = Math.max(0, Math.min(2, w));
+  }
+
+  render(l: Float32Array, r: Float32Array, from: number, to: number): void {
+    const windGain = (0.5 + this.wind * 0.5) * 0.09;
+    const crackleWindow = 0.04 * sampleRate;
+    for (let i = from; i < to; i++) {
+      // Wind: two decorrelated one-pole lowpassed noises for stereo width.
+      this.windLpL += 0.04 * (this.rng.range(-1, 1) - this.windLpL);
+      this.windLpR += 0.045 * (this.rng.range(-1, 1) - this.windLpR);
+
+      // Distant rumble: a low sine under a very slow swell.
+      this.rumbleLfo += 0.00002;
+      const rumbleEnv = 0.5 + 0.5 * Math.sin(this.rumbleLfo);
+      this.rumblePhase += 41 / sampleRate;
+      if (this.rumblePhase >= 1) this.rumblePhase -= 1;
+      const rumble = Math.sin(TWO_PI * this.rumblePhase) * rumbleEnv * 0.05;
+
+      // Ember crackle: sparse short bursts, more frequent on a stronger wind.
+      this.nextCrackle -= 1;
+      if (this.nextCrackle <= 0 && this.crackleLife <= 0) {
+        this.crackleLife = Math.round(this.rng.range(0.01, 0.05) * sampleRate);
+        this.crackleAmp = this.rng.range(0.05, 0.16) * (0.6 + this.wind * 0.4);
+        const gap = this.rng.range(0.6, 3) / (0.5 + this.wind * 0.6);
+        this.nextCrackle = Math.round(gap * sampleRate);
+      }
+      let crackle = 0;
+      if (this.crackleLife > 0) {
+        this.crackleLife -= 1;
+        this.crackleLp += 0.5 * (this.rng.range(-1, 1) - this.crackleLp);
+        crackle = this.crackleLp * this.crackleAmp * Math.min(1, this.crackleLife / crackleWindow);
+      }
+
+      l[i] = l[i]! + this.windLpL * windGain + rumble + crackle;
+      r[i] = r[i]! + this.windLpR * windGain + rumble + crackle * 0.8;
+    }
+  }
+}
+
 class VybezCore extends AudioWorkletProcessor {
   private queue: QueuedNote[] = [];
   private patches: PatchesMessage | undefined;
@@ -746,6 +817,7 @@ class VybezCore extends AudioWorkletProcessor {
   private bows = Array.from({ length: 3 }, () => new BowedVoice());
   private pipes = Array.from({ length: 5 }, () => new PipeVoice());
   private leads = Array.from({ length: 4 }, () => new WavetableVoice());
+  private world = new WorldVoice(1);
 
   constructor() {
     super();
@@ -753,6 +825,11 @@ class VybezCore extends AudioWorkletProcessor {
       const msg = e.data;
       if (msg.type === 'patches') {
         this.patches = msg;
+        this.world.reseed(msg.seed);
+        return;
+      }
+      if (msg.type === 'world') {
+        this.world.setWind(msg.wind);
         return;
       }
       if (msg.type === 'patch-update') {
@@ -806,6 +883,8 @@ class VybezCore extends AudioWorkletProcessor {
     ]) {
       for (const v of pool) if (v.active) v.render(l, r, from, to);
     }
+    // The World always plays; no dead air, even when all seven sleep.
+    this.world.render(l, r, from, to);
   }
 
   private startNote(note: QueuedNote): void {
