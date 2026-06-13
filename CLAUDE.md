@@ -91,6 +91,18 @@ Mike's report: as a user it felt static, clicks seemed to do nothing, controls w
 - No affordance and no feedback. The scene now gives every control a soft additive glow (warm, palette-tinted) that gently pulses so it reads as touchable, brightens on hover, bounces on press, and flares when its value actually changes. A one-time beckoning shimmer travels the controls just after ignition to teach the eye where to touch. All diegetic; no HUD, per Mike's choice.
 - Testing blind spot that let this slip: synthetic DOM PointerEvents dispatched on the canvas do NOT drive Pixi v8's event system, so every prior "controls work" check fired events straight at sprites via `sprite.emit('pointertap')`, which exercises handler logic but skips real hit-testing. Real-user ignition proves the DOM-to-Pixi hop works; `emit` proves the handler-to-bus-to-audio path. Verify both halves separately; never assume `emit` covers real input.
 
+## Mix rescue (the "one loud synth" report)
+
+Mike reported one loud voice overpowering everything, uncontrollable, masking all the spirits so controls seemed dead. Measured with an analyser on the master via the `__VYBEZ__` QA handle: full-mix RMS 0.65, peak 0.82, i.e. the bus was slamming the soft-clip limiter continuously, a crushed saturated wash with no dynamics. Causes and fixes:
+
+- The tape-saturation stage used `tanh(x*1.4)/tanh(1.4)`, whose small-signal gain is 1.4/tanh(1.4) = 1.58x; it was a hidden booster. Dropped drive to 0.8 (small-signal ~1.2x).
+- The makeup gain after the compressor was 1.5x, slamming everything into the limiter. Now 0.6x (net attenuation into the limiter, preserving dynamics).
+- The World bed was too loud (RMS ~0.10 alone). Cut its wind, rumble and crackle levels ~2.5x; now ~0.015, a true background.
+- Result: full-mix peak ~0.66, RMS ~0.39, no longer railing; the spirits and control changes are audible again. Mike's ear is the final judge of absolute level.
+- Particles were not suppressed (he was not on reduced motion) but too sparse and small to notice; counts and sizes raised so the spray reads clearly.
+
+Diagnostic note: `globalThis.__VYBEZ__ = { engine, conductor, handles, session, bus }` is exposed like `__PIXI_APP__` for QA; `engine.audioContext` and `engine.masterNode` allow analyser taps. Muting a spirit via `engine.setMuted` only gates new notes; already-ringing tails keep sounding, so to isolate the World, stop the conductor and let tails die before measuring. See [[vybez-testing-blindspot]].
+
 ## Style covenant
 
 British spelling. Sentence case headings. No em dashes anywhere: use colons, semicolons, en dashes with spaces, or hyphens. Plain verbs in user-facing strings. The only in-fiction caption is "stoke the fire". No persistence of any kind; the valley keeps its secrets.

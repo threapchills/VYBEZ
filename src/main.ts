@@ -2,6 +2,7 @@ import { Application } from 'pixi.js';
 import { loadAssets } from './assets/loader';
 import { Engine } from './audio/engine';
 import { Conductor } from './conductor/conductor';
+import { bus } from './core/bus';
 import { Rng, sessionSeed } from './core/rng';
 import { createSession } from './core/session';
 import { isDevMode, mountRig } from './dev/rig';
@@ -49,6 +50,9 @@ async function boot(): Promise<void> {
   const conductor = new Conductor(session, rng.fork('conductor'));
 
   const handles = buildScene(app, assets, session, () => engine.now());
+
+  // Diagnostic handle, like __PIXI_APP__: lets QA inspect the live runtime.
+  (globalThis as Record<string, unknown>).__VYBEZ__ = { engine, conductor, handles, session, bus };
 
   // The tuning rig is dev-only and excluded from the user experience.
   if (isDevMode()) mountRig(engine);

@@ -61,6 +61,14 @@ export class Engine {
     return this.ctx?.currentTime ?? 0;
   }
 
+  /** Diagnostic access for QA probes. */
+  get audioContext(): AudioContext | undefined {
+    return this.ctx;
+  }
+  get masterNode(): GainNode | undefined {
+    return this.masterGain;
+  }
+
   /** Must be called from a user gesture: the first tap on the fire. */
   async unlock(): Promise<void> {
     if (this.ctx) {
@@ -240,7 +248,10 @@ export class Engine {
   /** Saturation -> tone -> dry + fog -> compressor -> soft clip -> out. */
   private buildBus(ctx: AudioContext): AudioNode {
     const saturation = ctx.createWaveShaper();
-    saturation.curve = tanhCurve(1.4);
+    // Gentle warmth: a low drive so the stage barely lifts low-level signal and
+    // only rounds the peaks. A high drive here was secretly a 1.6x booster that
+    // slammed the whole bus into the limiter.
+    saturation.curve = tanhCurve(0.8);
     saturation.oversample = '2x';
 
     const tone = ctx.createBiquadFilter();
@@ -265,10 +276,10 @@ export class Engine {
     compressor.attack.value = 0.012;
     compressor.release.value = 0.18;
 
-    // Make up the gain the glue gave away, then run it into the soft limiter so
-    // the bus reads loud and warm but never clips hard.
+    // Attenuate into the soft limiter so the mix keeps its dynamics: peaks are
+    // caught, not crushed, and quiet moments stay quiet enough to hear a change.
     const makeup = ctx.createGain();
-    makeup.gain.value = 1.5;
+    makeup.gain.value = 0.6;
 
     const clip = ctx.createWaveShaper();
     clip.curve = tanhCurve(1);

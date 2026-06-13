@@ -769,7 +769,9 @@ class WorldVoice {
   }
 
   render(l: Float32Array, r: Float32Array, from: number, to: number): void {
-    const windGain = (0.5 + this.wind * 0.5) * 0.09;
+    // A faint bed: present enough to banish dead air, quiet enough never to
+    // mask the seven. Scaled gently by the wind.
+    const windGain = (0.5 + this.wind * 0.5) * 0.035;
     const crackleWindow = 0.04 * sampleRate;
     for (let i = from; i < to; i++) {
       // Wind: two decorrelated one-pole lowpassed noises for stereo width.
@@ -781,13 +783,13 @@ class WorldVoice {
       const rumbleEnv = 0.5 + 0.5 * Math.sin(this.rumbleLfo);
       this.rumblePhase += 41 / sampleRate;
       if (this.rumblePhase >= 1) this.rumblePhase -= 1;
-      const rumble = Math.sin(TWO_PI * this.rumblePhase) * rumbleEnv * 0.05;
+      const rumble = Math.sin(TWO_PI * this.rumblePhase) * rumbleEnv * 0.02;
 
       // Ember crackle: sparse short bursts, more frequent on a stronger wind.
       this.nextCrackle -= 1;
       if (this.nextCrackle <= 0 && this.crackleLife <= 0) {
         this.crackleLife = Math.round(this.rng.range(0.01, 0.05) * sampleRate);
-        this.crackleAmp = this.rng.range(0.05, 0.16) * (0.6 + this.wind * 0.4);
+        this.crackleAmp = this.rng.range(0.03, 0.08) * (0.6 + this.wind * 0.4);
         const gap = this.rng.range(0.6, 3) / (0.5 + this.wind * 0.6);
         this.nextCrackle = Math.round(gap * sampleRate);
       }

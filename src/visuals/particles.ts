@@ -60,10 +60,11 @@ export class ParticleField {
     y: number,
     opts: { tint: number; velocity: number; fire: number; pitch01?: number },
   ): void {
-    const gain = 0.4 + 0.6 * opts.fire;
+    const gain = 0.5 + 0.6 * opts.fire;
     const v = opts.velocity;
     const pitch = opts.pitch01 ?? 0.5;
-    const n = (k: number): number => Math.max(1, Math.round(k * gain * (0.5 + v)));
+    // Generous counts and a high floor so the spray is always clearly visible.
+    const n = (k: number): number => Math.max(3, Math.round(k * gain * (0.7 + v) * 1.6));
 
     switch (kind) {
       case 'drum':
@@ -163,7 +164,8 @@ export class ParticleField {
       const speed = rand(s.speed[0], s.speed[1]);
       let angle = rand(s.angle[0], s.angle[1]);
       if (s.mirror && Math.random() < 0.5) angle = Math.PI - angle;
-      const size = rand(s.size[0], s.size[1]);
+      // Bigger motes so the spray reads clearly against the painted scene.
+      const size = rand(s.size[0], s.size[1]) * 1.5;
       p.vx = Math.cos(angle) * speed;
       p.vy = Math.sin(angle) * speed;
       p.gravity = s.gravity;
