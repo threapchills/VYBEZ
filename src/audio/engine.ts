@@ -1,7 +1,13 @@
 import { bus } from '../core/bus';
 import type { Rng } from '../core/rng';
+import breathPatch from './patches/breath.json';
 import drumPatch from './patches/drum.json';
+import echoPatch from './patches/echo.json';
+import rattlePatch from './patches/rattle.json';
 import rootPatch from './patches/root.json';
+import spinnerPatch from './patches/spinner.json';
+import voicePatch from './patches/voice.json';
+import { bakeWavetables } from './tables';
 import workletUrl from './worklets/vybez-core.worklet.ts?worker&url';
 
 // The engine owns the AudioContext and the master bus; the conductor owns the
@@ -43,12 +49,25 @@ export class Engine {
 
     node.connect(this.buildBus(ctx));
 
-    node.port.postMessage({
-      type: 'patches',
-      seed: Math.floor(this.rng.next() * 0xffffffff),
-      root: { ...rootPatch, detuneCents: this.rng.range(-5, 5) },
-      drum: drumPatch,
-    });
+    // Session-baked material: the seed bakes the wavetable bank and chooses
+    // each melodic voice's resting detune. Covenant rule 5 lives here.
+    const tables = bakeWavetables(this.rng.fork('tables'));
+    node.port.postMessage(
+      {
+        type: 'patches',
+        seed: Math.floor(this.rng.next() * 0xffffffff),
+        root: { ...rootPatch, detuneCents: this.rng.range(-5, 5) },
+        drum: drumPatch,
+        rattle: rattlePatch.modal,
+        shaker: rattlePatch.shaker,
+        spinner: spinnerPatch,
+        voice: { ...voicePatch, detuneCents: this.rng.range(-5, 5) },
+        echo: { ...echoPatch, detuneCents: this.rng.range(-5, 5) },
+        breath: breathPatch,
+        tables,
+      },
+      [tables.data.buffer],
+    );
 
     bus.subscribe('note', (e) => {
       this.node?.port.postMessage({ type: 'note', ...e, when: e.time });

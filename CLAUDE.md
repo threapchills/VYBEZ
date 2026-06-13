@@ -40,6 +40,13 @@ TypeScript strict, Vite, PixiJS v8, Vitest. No other runtime dependencies.
 - The conductor's grid starts 0.1 s after ignition; jitter is measured from that grid. Voice restarts ride a 1.5 ms (string) or 0.5 ms (drum) onset ramp instead of steal fades, which phase 2 will revisit when polyphony pressure is real.
 - Hungarian minor's iv-drone (degree 5) sits outside the scale set deliberately, exactly as the handoff tables it.
 
+## Leaf modules authored ahead of their phase
+
+These were written while Fable 5 was unavailable, by Opus, carrying no DSP. Both still need the gate run (typecheck, lint, test) on a Fable 5 turn before they count as green.
+
+- `src/interact/controls.ts` (phase 3): the pure control arithmetic, one helper per object in the scene's control table, with no Pixi or audio dependency; the pointer layer will own geometry and bus publishing. ControlEvent targets follow the contracts comment exactly: `totem`, `moon`, `censer`, `fire`, `wind`, `busy:<id>`, `timbre:<id>`, `wake:<id>`. Open choices settled here: the censer settles to the nearest 4 BPM notch (the swing physics feel lives in the pointer layer); the fire stokes +0.2 per tap and cools exponentially toward the 0.35 floor with an 80 s time constant, so a full blaze is most of the way back by three minutes; wind cycles still to breeze to gale as bus values 0, 1, 2.
+- `src/visuals/palette.ts` (phase 4): the seven scale ramps and pure colour maths. Moon position maps to a hue rotation clamped to +-25 degrees; the fire warms the three midtone stops; `lerpRamp` drives the section-turn ease; `toTint` hands Pixi a 0xRRGGBB integer. Hue rotation is clamped so the painted art never breaks.
+
 ## Style covenant
 
 British spelling. Sentence case headings. No em dashes anywhere: use colons, semicolons, en dashes with spaces, or hyphens. Plain verbs in user-facing strings. The only in-fiction caption is "stoke the fire". No persistence of any kind; the valley keeps its secrets.
