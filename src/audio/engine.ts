@@ -169,34 +169,45 @@ export class Engine {
   setTimbre(spirit: SpiritId, t01: number): void {
     const t = Math.max(0, Math.min(1, t01));
     const lerp = (a: number, b: number): number => a + (b - a) * t;
+    // Macros sweep wide on purpose: each spirit should travel a vast range of
+    // character across one talisman drag, every point of it musical.
     switch (spirit) {
       case 'voice':
-        this.setPatchParam('voice', 'morph', lerp(0.1, 0.9));
-        this.setPatchParam('voice', 'breath', lerp(0.02, 0.18));
-        this.setPatchParam('voice', 'vibratoCents', lerp(4, 14));
+        // Full table sweep, breath from pure to airy, vibrato arriving late.
+        this.setPatchParam('voice', 'morph', lerp(0.0, 1.0));
+        this.setPatchParam('voice', 'breath', lerp(0.0, 0.32));
+        this.setPatchParam('voice', 'vibratoCents', lerp(0, 20));
+        this.setPatchParam('voice', 'release', lerp(0.05, 0.4));
         break;
       case 'echo':
-        this.setPatchParam('echo', 'brightness', lerp(0.25, 0.85));
-        this.setPatchParam('echo', 'pressure', lerp(0.5, 0.85));
+        // From dark, breathy bowing to a bright, pressed, singing tone.
+        this.setPatchParam('echo', 'brightness', lerp(0.08, 1.0));
+        this.setPatchParam('echo', 'pressure', lerp(0.3, 0.95));
         break;
       case 'rattle':
-        this.setPatchParam('rattle', 'position', lerp(0.15, 0.5));
-        this.setPatchParam('rattle', 'dampTilt', lerp(0.9, 0.68));
-        this.setPatchParam('rattle', 'hardness', lerp(0.5, 0.85));
+        // Woody and dark to glassy and ringing; strike position roams.
+        this.setPatchParam('rattle', 'position', lerp(0.04, 0.62));
+        this.setPatchParam('rattle', 'dampTilt', lerp(0.96, 0.52));
+        this.setPatchParam('rattle', 'hardness', lerp(0.25, 1.0));
         break;
       case 'spinner':
-        this.setPatchParam('spinner', 'position', lerp(0.12, 0.4));
-        this.setPatchParam('spinner', 'dampTilt', lerp(0.85, 0.65));
+        this.setPatchParam('spinner', 'position', lerp(0.03, 0.6));
+        this.setPatchParam('spinner', 'dampTilt', lerp(0.95, 0.5));
+        this.setPatchParam('spinner', 'hardness', lerp(0.25, 0.95));
         break;
       case 'breath':
-        this.setPatchParam('breath', 'cutoff', lerp(0.2, 0.8));
-        this.setPatchParam('breath', 'chiff', lerp(0.3, 0.8));
+        // From a distant, closed pipe to an open, chiffy, present blow.
+        this.setPatchParam('breath', 'cutoff', lerp(0.08, 0.98));
+        this.setPatchParam('breath', 'chiff', lerp(0.05, 1.0));
         break;
       case 'root':
-        this.setPatchParam('root', 'brightness', lerp(0.3, 0.85));
+        // Sub-heavy and dark to a bright, woody pluck.
+        this.setPatchParam('root', 'brightness', lerp(0.12, 0.95));
+        this.setPatchParam('root', 'subMix', lerp(0.6, 0.12));
         break;
       case 'drum':
-        this.setPatchParam('drum', 'tone', lerp(0.2, 0.85));
+        this.setPatchParam('drum', 'tone', lerp(0.08, 0.95));
+        this.setPatchParam('drum', 'decay', lerp(0.3, 0.9));
         break;
     }
   }
@@ -231,19 +242,25 @@ export class Engine {
     const wet = ctx.createGain();
     wet.gain.value = 0.28;
 
+    // Gentle glue: catch the peaks, hold the spirits together, never pump.
     const compressor = ctx.createDynamicsCompressor();
-    compressor.threshold.value = -18;
-    compressor.knee.value = 24;
-    compressor.ratio.value = 3;
-    compressor.attack.value = 0.01;
-    compressor.release.value = 0.25;
+    compressor.threshold.value = -16;
+    compressor.knee.value = 20;
+    compressor.ratio.value = 2.5;
+    compressor.attack.value = 0.012;
+    compressor.release.value = 0.18;
+
+    // Make up the gain the glue gave away, then run it into the soft limiter so
+    // the bus reads loud and warm but never clips hard.
+    const makeup = ctx.createGain();
+    makeup.gain.value = 1.5;
 
     const clip = ctx.createWaveShaper();
     clip.curve = tanhCurve(1);
     clip.oversample = '2x';
 
     const master = ctx.createGain();
-    master.gain.value = 0.9;
+    master.gain.value = 0.82;
 
     saturation.connect(tone);
     tone.connect(dry);
@@ -251,7 +268,8 @@ export class Engine {
     fog.connect(wet);
     dry.connect(compressor);
     wet.connect(compressor);
-    compressor.connect(clip);
+    compressor.connect(makeup);
+    makeup.connect(clip);
     clip.connect(master);
     master.connect(ctx.destination);
     return saturation;

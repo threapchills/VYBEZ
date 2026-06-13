@@ -12,6 +12,6 @@
   "shaker": {
     "centreHz": 3200,
     "decay": 0.045,
-    "gain": 0.4
+    "gain": 0.38
   }
 }
