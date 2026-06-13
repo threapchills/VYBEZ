@@ -96,7 +96,13 @@ interface PatchesMessage {
   tables: TablesPayload;
 }
 
-type InMessage = NoteMessage | PatchesMessage;
+interface PatchUpdateMessage {
+  type: 'patch-update';
+  key: 'root' | 'drum' | 'rattle' | 'shaker' | 'spinner' | 'voice' | 'echo' | 'breath';
+  patch: Record<string, number>;
+}
+
+type InMessage = NoteMessage | PatchesMessage | PatchUpdateMessage;
 
 interface QueuedNote extends NoteMessage {
   startFrame: number;
@@ -734,6 +740,14 @@ class VybezCore extends AudioWorkletProcessor {
       const msg = e.data;
       if (msg.type === 'patches') {
         this.patches = msg;
+        return;
+      }
+      if (msg.type === 'patch-update') {
+        // The dev rig edits a patch slot live; merge it over the current one.
+        if (this.patches) {
+          const slot = this.patches[msg.key] as unknown as Record<string, number>;
+          Object.assign(slot, msg.patch);
+        }
         return;
       }
       const startFrame = Math.max(0, Math.round(msg.when * sampleRate));
