@@ -5,6 +5,7 @@ import { Conductor } from './conductor/conductor';
 import { Rng, sessionSeed } from './core/rng';
 import { createSession } from './core/session';
 import { isDevMode, mountRig } from './dev/rig';
+import { mountMute } from './interact/mute';
 import { attachPointer } from './interact/pointer';
 import { buildScene } from './visuals/scene';
 
@@ -52,6 +53,9 @@ async function boot(): Promise<void> {
   // The tuning rig is dev-only and excluded from the user experience.
   if (isDevMode()) mountRig(engine);
 
+  // The mute icon waits offstage until the fire is lit.
+  const mute = mountMute(engine);
+
   // The first tap on the fire ignites the scene, unlocks audio, starts the
   // conductor, and hands all further interaction to the pointer layer.
   let audioStarted = false;
@@ -64,6 +68,7 @@ async function boot(): Promise<void> {
       .then(() => {
         conductor.start(() => engine.now());
         attachPointer(app, handles, session);
+        mute.reveal();
       })
       .catch((err: unknown) => console.error('audio failed to wake:', err));
   });

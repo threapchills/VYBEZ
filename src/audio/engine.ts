@@ -30,6 +30,8 @@ export class Engine {
   private ctx: AudioContext | undefined;
   private node: AudioWorkletNode | undefined;
   private toneFilter: BiquadFilterNode | undefined;
+  private masterGain: GainNode | undefined;
+  private static readonly MASTER_LEVEL = 0.82;
 
   /** Live patch slots, mutated by the dev rig and pushed to the worklet. */
   private readonly patches: Record<PatchKey, Record<string, number>>;
@@ -124,6 +126,16 @@ export class Engine {
         void ctx.resume();
       }
     });
+  }
+
+  /** The mute icon flips this; a short ramp avoids a click. */
+  setMasterMuted(muted: boolean): void {
+    const g = this.masterGain;
+    if (!g || !this.ctx) return;
+    const t = this.ctx.currentTime;
+    g.gain.cancelScheduledValues(t);
+    g.gain.setValueAtTime(g.gain.value, t);
+    g.gain.linearRampToValueAtTime(muted ? 0 : Engine.MASTER_LEVEL, t + 0.05);
   }
 
   /** Open or close the master tone as the fire rises; phase 3 drives this. */
@@ -263,7 +275,8 @@ export class Engine {
     clip.oversample = '2x';
 
     const master = ctx.createGain();
-    master.gain.value = 0.82;
+    master.gain.value = Engine.MASTER_LEVEL;
+    this.masterGain = master;
 
     saturation.connect(tone);
     tone.connect(dry);

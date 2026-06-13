@@ -75,9 +75,13 @@ TypeScript strict, Vite, PixiJS v8, Vitest. No other runtime dependencies.
 - The World (covenant rule 8) is a continuous `WorldVoice` in the worklet, always rendered after the seven: quiet stereo-decorrelated wind noise, a distant low rumble under a slow swell, and sparse ember crackle, all scaled by the wind state the engine forwards. There is never dead air, even with all seven asleep.
 - Talisman drift needs the conductor to track its own copy of each timbre value (it walks then publishes `timbre:<id>`, which the engine renders); busyness and fire it reads back from its own state.
 
-## Phase 6 remaining
+## Phase 6 decisions
 
-Polish only: FX bus fine-tuning, mobile touch and layout crop, a performance pass and CPU budget check, the reduced-motion and ignition niceties, the mute icon, and dialling the patch macros in by ear with the rig. Known debt carried from earlier phases: voice stealing restarts immediately rather than riding the 5 ms steal fade (the onset ramp still declicks).
+- The mute icon (`src/interact/mute.ts`) is the only conventional UI besides the ignition caption: a small DOM button, hidden until the fire is lit, that ramps the master gain over 50 ms. The engine exposes `setMasterMuted`; the master level lives in one constant so mute and unmute agree.
+- Reduced motion: parallax, camera breath, the banner and censer drift, and the caption pulse all still under `prefers-reduced-motion`; particles, being motion, are suppressed entirely. Onset-locked spirit frames stay, as they carry meaning rather than ambience.
+- Mobile: the cover-fit centres the fire so the hearth is always in frame on a tall phone; Pixi federated pointer events serve mouse and touch through one path; `touch-action: none` and `user-select: none` in index.html keep browser gestures out. Verified at 375x812 with the mute icon placed and a single instance mounted.
+- Performance sits within budget by construction: modal banks are cheap two-pole resonators, the particle field is a fixed pool of 420, and the onset budget caps simultaneity. Desktop tabs keep playing in the background; mobile resumes audio cleanly on visibilitychange.
+- Remaining and deliberately left to Mike: dialling the patch macro curves in by ear with the `?dev=1` rig (the curves sweep wide and musical but are first-pass by reason). Known low-priority debt: voice stealing restarts immediately rather than riding the 5 ms steal fade; the onset ramp already declicks it, so it only matters under heavy polyphony pressure.
 
 ## Style covenant
 

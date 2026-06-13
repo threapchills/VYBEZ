@@ -379,13 +379,16 @@ export function buildScene(
       anim.strikeDur = Math.min(0.5, Math.max(0.14, e.duration));
     }
     // Particle signature, hue-fed and gain-scaled by fire and velocity.
-    const pitch01 = e.midi !== undefined ? Math.max(0, Math.min(1, (e.midi - 24) / 60)) : 0.5;
-    particles.emit(id as ParticleKind, sprite.x, sprite.y - 60, {
-      tint: accentTint,
-      velocity: e.velocity,
-      fire: curFire,
-      pitch01,
-    });
+    // Particles are motion, so a visitor who asked for less gets none.
+    if (!reducedMotion) {
+      const pitch01 = e.midi !== undefined ? Math.max(0, Math.min(1, (e.midi - 24) / 60)) : 0.5;
+      particles.emit(id as ParticleKind, sprite.x, sprite.y - 60, {
+        tint: accentTint,
+        velocity: e.velocity,
+        fire: curFire,
+        pitch01,
+      });
+    }
     if (e.spirit === 'drum' || e.spirit === 'root') {
       foreNudge = Math.min(3, foreNudge + 2.4 * e.velocity);
     }
