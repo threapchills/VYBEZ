@@ -40,7 +40,9 @@ export function hexToRgb(hex: string): Rgb {
 
 export function rgbToHex({ r, g, b }: Rgb): string {
   const c = (v: number): string =>
-    Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0');
+    Math.max(0, Math.min(255, Math.round(v)))
+      .toString(16)
+      .padStart(2, '0');
   return `#${c(r)}${c(g)}${c(b)}`;
 }
 
@@ -63,7 +65,7 @@ function rgbToHsl({ r, g, b }: Rgb): { h: number; s: number; l: number } {
 
 function hslToRgb({ h, s, l }: { h: number; s: number; l: number }): Rgb {
   if (s === 0) return { r: l * 255, g: l * 255, b: l * 255 };
-  const hue = ((h % 360) + 360) % 360 / 360;
+  const hue = (((h % 360) + 360) % 360) / 360;
   const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
   const p = 2 * l - q;
   const channel = (t: number): number => {

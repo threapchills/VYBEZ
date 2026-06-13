@@ -16,7 +16,15 @@ import workletUrl from './worklets/vybez-core.worklet.ts?worker&url';
 // filter -> dry + generated-IR fog -> bus compressor -> soft clip -> out.
 
 /** The per-spirit patch slots the worklet renders; the dev rig edits these. */
-export type PatchKey = 'root' | 'drum' | 'rattle' | 'shaker' | 'spinner' | 'voice' | 'echo' | 'breath';
+export type PatchKey =
+  | 'root'
+  | 'drum'
+  | 'rattle'
+  | 'shaker'
+  | 'spinner'
+  | 'voice'
+  | 'echo'
+  | 'breath';
 
 export class Engine {
   private ctx: AudioContext | undefined;
@@ -98,6 +106,15 @@ export class Engine {
       this.node?.port.postMessage({ type: 'note', ...e, when: e.time });
     });
 
+    // The fire opens the master tone; the talismans morph each voice's timbre.
+    bus.subscribe('control', (e) => {
+      if (e.target === 'fire') {
+        this.setToneOpenness((e.value - 0.35) / 0.65);
+      } else if (e.target.startsWith('timbre:')) {
+        this.setTimbre(e.target.slice('timbre:'.length) as SpiritId, e.value);
+      }
+    });
+
     // Mobile may suspend audio when backgrounded; resume cleanly on return.
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'visible' && ctx.state === 'suspended') {
@@ -142,6 +159,46 @@ export class Engine {
       ...(articulation ? { articulation } : {}),
     };
     this.node?.port.postMessage(note);
+  }
+
+  /**
+   * The talisman macro: one 0-to-1 input sweeps each voice's character along a
+   * curve through several patch parameters. A first pass of the curves, to be
+   * dialled in by ear with the rig; every point along the travel stays musical.
+   */
+  setTimbre(spirit: SpiritId, t01: number): void {
+    const t = Math.max(0, Math.min(1, t01));
+    const lerp = (a: number, b: number): number => a + (b - a) * t;
+    switch (spirit) {
+      case 'voice':
+        this.setPatchParam('voice', 'morph', lerp(0.1, 0.9));
+        this.setPatchParam('voice', 'breath', lerp(0.02, 0.18));
+        this.setPatchParam('voice', 'vibratoCents', lerp(4, 14));
+        break;
+      case 'echo':
+        this.setPatchParam('echo', 'brightness', lerp(0.25, 0.85));
+        this.setPatchParam('echo', 'pressure', lerp(0.5, 0.85));
+        break;
+      case 'rattle':
+        this.setPatchParam('rattle', 'position', lerp(0.15, 0.5));
+        this.setPatchParam('rattle', 'dampTilt', lerp(0.9, 0.68));
+        this.setPatchParam('rattle', 'hardness', lerp(0.5, 0.85));
+        break;
+      case 'spinner':
+        this.setPatchParam('spinner', 'position', lerp(0.12, 0.4));
+        this.setPatchParam('spinner', 'dampTilt', lerp(0.85, 0.65));
+        break;
+      case 'breath':
+        this.setPatchParam('breath', 'cutoff', lerp(0.2, 0.8));
+        this.setPatchParam('breath', 'chiff', lerp(0.3, 0.8));
+        break;
+      case 'root':
+        this.setPatchParam('root', 'brightness', lerp(0.3, 0.85));
+        break;
+      case 'drum':
+        this.setPatchParam('drum', 'tone', lerp(0.2, 0.85));
+        break;
+    }
   }
 
   setSolo(spirit: SpiritId, on: boolean): void {

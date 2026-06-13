@@ -5,6 +5,7 @@ import { Conductor } from './conductor/conductor';
 import { Rng, sessionSeed } from './core/rng';
 import { createSession } from './core/session';
 import { isDevMode, mountRig } from './dev/rig';
+import { attachPointer } from './interact/pointer';
 import { buildScene } from './visuals/scene';
 
 // Boot: seed the session, load and validate the art, raise the valley.
@@ -50,13 +51,19 @@ async function boot(): Promise<void> {
   // The tuning rig is dev-only and excluded from the user experience.
   if (isDevMode()) mountRig(engine);
 
+  // The first tap on the fire ignites the scene, unlocks audio, starts the
+  // conductor, and hands all further interaction to the pointer layer.
   let audioStarted = false;
   handles.fire.on('pointertap', () => {
     if (audioStarted) return;
     audioStarted = true;
+    handles.ignite();
     engine
       .unlock()
-      .then(() => conductor.start(() => engine.now()))
+      .then(() => {
+        conductor.start(() => engine.now());
+        attachPointer(app, handles, session);
+      })
       .catch((err: unknown) => console.error('audio failed to wake:', err));
   });
 }

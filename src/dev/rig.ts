@@ -35,7 +35,12 @@ const SECTIONS: Section[] = [
     key: 'drum',
     spirit: 'drum',
     audition: { articulation: 'kick' },
-    params: [P('tone', 0, 1, 0.01), P('decay', 0, 1, 0.01), P('pan', -1, 1, 0.05), P('gain', 0, 2, 0.05)],
+    params: [
+      P('tone', 0, 1, 0.01),
+      P('decay', 0, 1, 0.01),
+      P('pan', -1, 1, 0.05),
+      P('gain', 0, 2, 0.05),
+    ],
   },
   {
     label: 'Root',
@@ -118,7 +123,12 @@ const SECTIONS: Section[] = [
     key: 'breath',
     spirit: 'breath',
     audition: { midi: 48, articulation: 'drone' },
-    params: [P('cutoff', 0, 1, 0.01), P('chiff', 0, 1, 0.01), P('pan', -1, 1, 0.05), P('gain', 0, 2, 0.05)],
+    params: [
+      P('cutoff', 0, 1, 0.01),
+      P('chiff', 0, 1, 0.01),
+      P('pan', -1, 1, 0.05),
+      P('gain', 0, 2, 0.05),
+    ],
   },
 ];
 
@@ -191,7 +201,9 @@ function buildSection(
     toggle('solo', (on) => engine.setSolo(section.spirit, on)),
     toggle('mute', (on) => engine.setMuted(section.spirit, on)),
     button('copy', () => {
-      void navigator.clipboard.writeText(JSON.stringify(engine.patchSnapshot()[section.key], null, 2));
+      void navigator.clipboard.writeText(
+        JSON.stringify(engine.patchSnapshot()[section.key], null, 2),
+      );
     }),
   );
   wrap.appendChild(controls);
@@ -235,7 +247,8 @@ function buildSlider(engine: Engine, key: PatchKey, p: Param, initial: number): 
 function button(label: string, onClick: () => void): HTMLButtonElement {
   const b = document.createElement('button');
   b.textContent = label;
-  b.style.cssText = 'background:#243b53;color:#e8e3cf;border:0;padding:3px 6px;cursor:pointer;font:11px monospace';
+  b.style.cssText =
+    'background:#243b53;color:#e8e3cf;border:0;padding:3px 6px;cursor:pointer;font:11px monospace';
   b.addEventListener('click', onClick);
   return b;
 }

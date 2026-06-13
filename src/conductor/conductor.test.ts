@@ -137,4 +137,41 @@ describe('conductor', () => {
       expect(session.asleep.has(n.spirit)).toBe(false);
     }
   });
+
+  it('the totem changes the scale live', () => {
+    const rng = new Rng(5);
+    const session = createSession(rng.fork('session'));
+    const conductor = new Conductor(session, rng.fork('conductor'));
+    conductor.handleControl({ target: 'totem', value: 6 }); // ionian
+    conductor.handleControl({ target: 'moon', value: 0 }); // root C
+    conductor.tick(0.2);
+    const ionianFromC = [0, 2, 4, 5, 7, 9, 11];
+    expect(
+      sections
+        .at(-1)
+        ?.scaleTones.slice()
+        .sort((a, b) => a - b),
+    ).toEqual(ionianFromC);
+  });
+
+  it('the moon changes the root live', () => {
+    const rng = new Rng(5);
+    const session = createSession(rng.fork('session'));
+    const conductor = new Conductor(session, rng.fork('conductor'));
+    conductor.handleControl({ target: 'moon', value: 5 });
+    conductor.tick(0.2);
+    expect(sections.at(-1)?.chordRoot).toBe(5);
+  });
+
+  it('waking and sleeping a spirit announces it and gates its notes', () => {
+    const wakes: Array<{ spirit: string; awake: boolean }> = [];
+    offs.push(bus.subscribe('wake', (e) => wakes.push(e)));
+    const rng = new Rng(8);
+    const session = createSession(rng.fork('session'));
+    const conductor = new Conductor(session, rng.fork('conductor'));
+    conductor.handleControl({ target: 'wake:drum', value: 0 }); // the drum is always awake
+    for (let t = 0; t < 4; t += 0.025) conductor.tick(t);
+    expect(wakes.some((w) => w.spirit === 'drum' && !w.awake)).toBe(true);
+    expect(notes.some((n) => n.spirit === 'drum')).toBe(false);
+  });
 });

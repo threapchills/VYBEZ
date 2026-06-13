@@ -40,10 +40,18 @@ export class Conductor {
   private slot = 0;
   private nextSlotTime = 0;
   private timer: ReturnType<typeof setInterval> | undefined;
-  private readonly slotDur: number;
-  private readonly rootPc: number;
+  private unsubscribe: (() => void) | undefined;
+  // These four are the live diegetic controls: the censer, moon and totem
+  // move them, so they cannot be readonly.
+  private slotDur: number;
+  private rootPc: number;
+  private scaleIndex: number;
+  private harmony: HarmonyChain;
+  /** Live wake state, seeded from the session and toggled by tapping spirits. */
+  private readonly asleepNow: Set<SpiritId>;
+  /** Tracked so palette broadcasts carry the current fire. */
+  private fire: number;
 
-  private readonly harmony: HarmonyChain;
   private chordDegree = 0;
   private chordPcs: number[];
   private scalePcs: number[];
@@ -74,9 +82,12 @@ export class Conductor {
   ) {
     this.slotDur = secondsPerSlot(session.bpm);
     this.rootPc = session.moonPosition;
-    this.harmony = new HarmonyChain(session.scaleIndex, rng.fork('harmony'));
-    this.chordPcs = chordTones(session.scaleIndex, this.rootPc, 0);
-    this.scalePcs = scaleTones(session.scaleIndex, this.rootPc);
+    this.scaleIndex = session.scaleIndex;
+    this.fire = session.fire;
+    this.harmony = new HarmonyChain(this.scaleIndex, rng.fork('harmony'));
+    this.chordPcs = chordTones(this.scaleIndex, this.rootPc, 0);
+    this.scalePcs = scaleTones(this.scaleIndex, this.rootPc);
+    this.asleepNow = new Set(session.asleep);
 
     this.kicks = rotate(euclid(rng.pick([5, 7]), 16), rng.int(0, 15));
     this.rootCycleSlots = rng.pick([3, 4, 6]) * SLOTS_PER_BEAT;
@@ -96,12 +107,15 @@ export class Conductor {
   start(now: () => number): void {
     if (this.timer !== undefined) return;
     this.nextSlotTime = now() + 0.1;
+    this.unsubscribe = bus.subscribe('control', (e) => this.handleControl(e));
     this.timer = setInterval(() => this.tick(now()), TICK_MS);
   }
 
   stop(): void {
     if (this.timer !== undefined) clearInterval(this.timer);
     this.timer = undefined;
+    this.unsubscribe?.();
+    this.unsubscribe = undefined;
   }
 
   /** Schedule every slot inside the horizon. Public for tests. */
@@ -114,13 +128,77 @@ export class Conductor {
   }
 
   private awake(id: SpiritId): boolean {
-    return !this.session.asleep.has(id);
+    return !this.asleepNow.has(id);
+  }
+
+  /**
+   * Consume a control change from the interaction layer. Every control responds
+   * live so the valley answers a touch within a beat. Targets follow the
+   * contracts: totem, moon, censer, fire, wind, busy:<id>, wake:<id>. Timbre is
+   * the engine's business and is ignored here.
+   */
+  handleControl(event: { target: string; value: number }): void {
+    const { target, value } = event;
+    if (target === 'totem') {
+      this.scaleIndex = ((Math.round(value) % 7) + 7) % 7;
+      this.harmony = new HarmonyChain(this.scaleIndex, this.rng.fork(`harmony:${this.slot}`));
+      this.chordDegree = 0;
+      this.refreshPitches();
+      this.broadcastPalette();
+      return;
+    }
+    if (target === 'moon') {
+      this.rootPc = ((Math.round(value) % 12) + 12) % 12;
+      this.refreshPitches();
+      this.broadcastPalette();
+      return;
+    }
+    if (target === 'censer') {
+      this.slotDur = secondsPerSlot(value);
+      return;
+    }
+    if (target === 'fire') {
+      this.fire = value;
+      this.broadcastPalette();
+      return;
+    }
+    if (target === 'wind') {
+      // Wind drives autonomous drift; the conductor owns that in phase 5.
+      return;
+    }
+    const colon = target.indexOf(':');
+    if (colon === -1) return;
+    const kind = target.slice(0, colon);
+    const id = target.slice(colon + 1) as SpiritId;
+    if (kind === 'busy') {
+      this.busy[id] = Math.max(0, Math.min(1, value));
+    } else if (kind === 'wake') {
+      const wantAwake = value >= 0.5;
+      if (wantAwake) this.asleepNow.delete(id);
+      else this.asleepNow.add(id);
+      // The visual layer plays the wake or sleep animation off this.
+      bus.publish('wake', { spirit: id, awake: wantAwake });
+    }
+  }
+
+  private refreshPitches(): void {
+    this.chordPcs = chordTones(this.scaleIndex, this.rootPc, this.chordDegree);
+    this.scalePcs = scaleTones(this.scaleIndex, this.rootPc);
+  }
+
+  private broadcastPalette(): void {
+    bus.publish('palette', {
+      scaleIndex: this.scaleIndex,
+      moonPosition: this.rootPc,
+      fire: this.fire,
+    });
   }
 
   /** Covenant rule 6: a slow density envelope across the section. */
   private arc(id: string, bar: number): number {
     const barInSection = bar % this.session.sectionBars;
-    const phase = (barInSection / this.session.sectionBars + (this.arcPhase[id] ?? 0)) * Math.PI * 2;
+    const phase =
+      (barInSection / this.session.sectionBars + (this.arcPhase[id] ?? 0)) * Math.PI * 2;
     return 0.35 + 0.65 * (0.5 + 0.5 * Math.sin(phase));
   }
 
@@ -155,7 +233,7 @@ export class Conductor {
     const chordChanged = bar % this.chordChangeBars === 0;
     if (chordChanged && bar > 0) {
       this.chordDegree = this.harmony.step();
-      this.chordPcs = chordTones(this.session.scaleIndex, this.rootPc, this.chordDegree);
+      this.chordPcs = chordTones(this.scaleIndex, this.rootPc, this.chordDegree);
     }
 
     bus.publish('section', {
@@ -174,7 +252,14 @@ export class Conductor {
         const droneMidi = this.intoLane(36 + dronePc, LANES.breath);
         pending.push(this.swell('breath', time, 0.5, dur, 'drone', droneMidi));
         pending.push(
-          this.swell('breath', time, 0.35, dur, 'drone', this.intoLane(droneMidi + 7, LANES.breath)),
+          this.swell(
+            'breath',
+            time,
+            0.35,
+            dur,
+            'drone',
+            this.intoLane(droneMidi + 7, LANES.breath),
+          ),
         );
       }
       if (barInSection === this.session.sectionBars - 1) {
@@ -186,11 +271,14 @@ export class Conductor {
   private scheduleDrum(inBar: number, bar: number, time: number, pending: NoteEvent[]): void {
     const jitter = this.rng.range(-DRUM_JITTER_S, DRUM_JITTER_S);
     if (inBar === SLOTS_PER_BEAT || inBar === SLOTS_PER_BEAT * 3) {
-      pending.push(this.note('drum', time + jitter, 0.7 + this.rng.range(-0.05, 0.05), 0.2, 'snare'));
+      pending.push(
+        this.note('drum', time + jitter, 0.7 + this.rng.range(-0.05, 0.05), 0.2, 'snare'),
+      );
       return;
     }
     if (this.kicks[inBar % 16]) {
-      const vel = inBar === 0 ? 0.95 : 0.6 + 0.25 * this.arc('drum', bar) + this.rng.range(-0.08, 0.08);
+      const vel =
+        inBar === 0 ? 0.95 : 0.6 + 0.25 * this.arc('drum', bar) + this.rng.range(-0.08, 0.08);
       pending.push(this.note('drum', time + jitter, Math.min(1, vel), 0.3, 'kick'));
     }
     if (inBar === 14 && this.rng.chance(0.2 * this.arc('drum', bar))) {
@@ -228,9 +316,7 @@ export class Conductor {
     const pc = this.rng.pick(this.scalePcs);
     const midi = this.intoLane(60 + pc, LANES.rattle);
     const jitter = this.rng.range(-JITTER_S, JITTER_S);
-    pending.push(
-      this.note('rattle', time + jitter, vel, 0.15, ghost ? 'ghost' : 'hit', midi),
-    );
+    pending.push(this.note('rattle', time + jitter, vel, 0.15, ghost ? 'ghost' : 'hit', midi));
   }
 
   private scheduleVoice(
@@ -243,9 +329,7 @@ export class Conductor {
     const strong = inBar === 0 || inBar === SLOTS_PER_BEAT * 2;
     const onEighth = inBar % 2 === 0;
     let p =
-      (this.busy['voice'] ?? 0.5) *
-      this.arc('voice', bar) *
-      (strong ? 0.75 : onEighth ? 0.4 : 0.1);
+      (this.busy['voice'] ?? 0.5) * this.arc('voice', bar) * (strong ? 0.75 : onEighth ? 0.4 : 0.1);
     // Real rests: breathe out at the tails of two-bar phrases.
     if (bar % 2 === 1 && inBar >= 12) p *= 0.15;
 
@@ -339,7 +423,14 @@ export class Conductor {
     const midi = midis[this.spinnerIdx] as number;
     const jitter = this.rng.range(-JITTER_S, JITTER_S);
     pending.push(
-      this.note('spinner', time + jitter, 0.32 + 0.2 * this.arc('spinner', bar), this.slotDur, 'tine', midi),
+      this.note(
+        'spinner',
+        time + jitter,
+        0.32 + 0.2 * this.arc('spinner', bar),
+        this.slotDur,
+        'tine',
+        midi,
+      ),
     );
   }
 
@@ -359,9 +450,7 @@ export class Conductor {
       const i = PRIORITY.indexOf(e.spirit);
       return i === -1 ? PRIORITY.length : i;
     };
-    const kept = new Set(
-      [...attacks].sort((a, b) => rank(a) - rank(b)).slice(0, cap),
-    );
+    const kept = new Set([...attacks].sort((a, b) => rank(a) - rank(b)).slice(0, cap));
     return pending.filter((e) => SWELLS.has(e.articulation ?? '') || kept.has(e));
   }
 

@@ -200,7 +200,13 @@ class StringVoice extends Voice {
   private subDecay = 1;
   private gain = 1;
 
-  start(freq: number, velocity: number, durFrames: number, patch: RootPatch, rng: WorkletRng): void {
+  start(
+    freq: number,
+    velocity: number,
+    durFrames: number,
+    patch: RootPatch,
+    rng: WorkletRng,
+  ): void {
     const f = freq * centsRatio(patch.detuneCents + rng.range(-2, 2));
     this.len = Math.max(2, Math.min(this.buf.length, Math.round(sampleRate / f)));
     this.pos = 0;
@@ -471,7 +477,13 @@ class BowedVoice extends Voice {
   private gain = 1;
   private rng!: WorkletRng;
 
-  start(freq: number, velocity: number, durFrames: number, patch: BowedPatch, rng: WorkletRng): void {
+  start(
+    freq: number,
+    velocity: number,
+    durFrames: number,
+    patch: BowedPatch,
+    rng: WorkletRng,
+  ): void {
     this.rng = rng;
     const f = freq * centsRatio(patch.detuneCents + rng.range(-3, 3));
     this.len = Math.max(2, Math.min(this.buf.length, Math.round(sampleRate / f)));
@@ -704,7 +716,8 @@ class WavetableVoice extends Voice {
       const i0 = Math.floor(idx) % size;
       const i1 = (i0 + 1) % size;
       const frac = idx - Math.floor(idx);
-      const a = data[this.mipBase + i0]! + (data[this.mipBase + i1]! - data[this.mipBase + i0]!) * frac;
+      const a =
+        data[this.mipBase + i0]! + (data[this.mipBase + i1]! - data[this.mipBase + i0]!) * frac;
       const b =
         data[this.mipBase2 + i0]! + (data[this.mipBase2 + i1]! - data[this.mipBase2 + i0]!) * frac;
       let s = a + (b - a) * this.morphFrac;

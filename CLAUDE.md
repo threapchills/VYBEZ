@@ -50,12 +50,18 @@ TypeScript strict, Vite, PixiJS v8, Vitest. No other runtime dependencies.
 - The dev rig (`src/dev/rig.ts`, `?dev=1`) edits live patch scalars by posting `patch-update` to the worklet, with per-spirit solo, mute, audition and clipboard export. Macro breakpoint curves are not yet data (macros are coded curves in the worklet), so the rig tunes raw parameters; the rattle and shaker export as separate slots and reassemble into `rattle.json`'s `modal` and `shaker` keys by hand.
 - Known polish debt for phase 6: voice stealing currently restarts the stolen voice immediately rather than riding the 5 ms steal fade (the onset ramp still declicks); the modal/wavetable macro curves want tuning by ear now that the rig exists.
 
-## Leaf modules authored ahead of their phase
+## Phase 3 decisions
 
-Written by Opus, gates green, but not yet wired into their phases.
+- The control flow: the pointer layer (`src/interact/pointer.ts`) reads geometry and publishes `control` events; the conductor and engine both subscribe and respond live; the scene subscribes for visual feedback. One topic, three independent consumers, no cross-wiring.
+- `controls.ts` (the pure arithmetic) is now wired. Taps drive the discrete controls (totem cycles the scale, banner cycles the wind, fire stokes, a spirit tap toggles wake); drags drive the continuous ones (moon along the arc to the root, censer vertical to the tempo, spirit vertical to busyness, talisman horizontal to timbre). Tap versus drag is decided by a 6 px slop.
+- Wake is immediate in phase 3: tapping a spirit swaps its pose and gates its notes at once. The covenant's 2-bar graceful crossfade (rule 7) is deferred to phase 5 with the rest of the section machinery.
+- The talisman timbre macro lives in `engine.setTimbre`: one 0-to-1 input sweeps several patch parameters per spirit along a first-pass curve, to be dialled in by ear with the rig.
+- Visual feedback added now: the totem glow climbs one segment per scale notch, the moon walks the arc, the banner flutters at a wind-dependent speed, the censer swings with a period tracking the tempo, spirits swap pose on wake. Onset-locked playing frames, parallax and particles are still phase 4.
+- The fire decays toward its 0.35 floor via a 1 Hz tick in the pointer layer that republishes the cooling value; a full blaze is most of the way back in about three minutes.
 
-- `src/interact/controls.ts` (phase 3): the pure control arithmetic, one helper per object in the scene's control table, with no Pixi or audio dependency; the pointer layer will own geometry and bus publishing. ControlEvent targets follow the contracts comment exactly: `totem`, `moon`, `censer`, `fire`, `wind`, `busy:<id>`, `timbre:<id>`, `wake:<id>`. Open choices settled here: the censer settles to the nearest 4 BPM notch (the swing physics feel lives in the pointer layer); the fire stokes +0.2 per tap and cools exponentially toward the 0.35 floor with an 80 s time constant, so a full blaze is most of the way back by three minutes; wind cycles still to breeze to gale as bus values 0, 1, 2.
-- `src/visuals/palette.ts` (phase 4): the seven scale ramps and pure colour maths. Moon position maps to a hue rotation clamped to +-25 degrees; the fire warms the three midtone stops; `lerpRamp` drives the section-turn ease; `toTint` hands Pixi a 0xRRGGBB integer. Hue rotation is clamped so the painted art never breaks.
+## Leaf module authored ahead of its phase
+
+- `src/visuals/palette.ts` (phase 4): the seven scale ramps and pure colour maths, gates green but not yet wired. Moon position maps to a hue rotation clamped to +-25 degrees; the fire warms the three midtone stops; `lerpRamp` drives the section-turn ease; `toTint` hands Pixi a 0xRRGGBB integer. The conductor already broadcasts `palette` events for it to consume.
 
 ## Style covenant
 

@@ -2,11 +2,15 @@ import { Application, ColorMatrixFilter, Container, Sprite, Text } from 'pixi.js
 import type { AssetLibrary } from '../assets/loader';
 import type { SpiritId } from '../core/contracts';
 import { PLAYABLE_SPIRITS } from '../core/contracts';
+import { bus } from '../core/bus';
 import type { Session } from '../core/session';
+import { secondsPerBeat } from '../core/time';
 
-// Phase 0 scene: the painted valley assembled in world space, dim and
-// desaturated until the fire is stoked. Parallax, particles and onset-locked
-// animation arrive in phase 4; this file only establishes the stage.
+// The painted valley assembled in world space, dim and desaturated until the
+// fire is stoked. Phase 3 gives every diegetic control a visible answer: the
+// totem glow climbs, the moon walks the arc, the banner flutters with the
+// wind, the censer swings to the tempo, spirits wake and sleep. Full
+// onset-locked animation, parallax and particles arrive in phase 4.
 
 /** The painted layers' native space; all placement happens in these units. */
 const WORLD_W = 3840;
@@ -18,6 +22,10 @@ const SPIRIT_SCALE = 2.5;
 
 /** Feet stand 12 px above the cell bottom on every sheet. */
 const FOOT_ANCHOR = (128 - 12) / 128;
+
+const TOTEM_POS = { x: 820, y: 1010 };
+/** Each carved head is 64 px tall in the sheet, drawn at 2x. */
+const TOTEM_SEGMENT = 128;
 
 /** Where each spirit stands, in world units; tuned against the real art later. */
 const SPIRIT_SPOTS: Record<Exclude<SpiritId, 'world'>, { x: number; y: number }> = {
@@ -32,11 +40,19 @@ const SPIRIT_SPOTS: Record<Exclude<SpiritId, 'world'>, { x: number; y: number }>
 
 const FIRE_SPOT = { x: 1920, y: 1030 };
 
+type PlayableId = Exclude<SpiritId, 'world'>;
+
 export interface SceneHandles {
   world: Container;
   spirits: Map<SpiritId, Sprite>;
-  asleep: ReadonlySet<SpiritId>;
+  talismans: Map<SpiritId, Sprite>;
+  totem: Sprite;
+  moon: Sprite;
+  censer: Sprite;
+  banner: Sprite;
   fire: Sprite;
+  /** Convert a pointer's world x into a moon arc position 0 to 11. */
+  moonPositionFromWorldX: (worldX: number) => number;
   ignite: () => void;
   ignited: boolean;
 }
@@ -45,7 +61,6 @@ export function buildScene(app: Application, assets: AssetLibrary, session: Sess
   const world = new Container();
   app.stage.addChild(world);
 
-  // Back to front: sky, moon, far ridge, mid ruins, glade, actors, foreground.
   const sky = Sprite.from(assets.get('bg_00_sky.png').texture);
   world.addChild(sky);
 
@@ -65,8 +80,20 @@ export function buildScene(app: Application, assets: AssetLibrary, session: Sess
   const totem = Sprite.from(assets.get('totem_pole.png').texture);
   totem.anchor.set(0.5, 1);
   totem.scale.set(2);
-  totem.position.set(820, 1010);
+  totem.position.set(TOTEM_POS.x, TOTEM_POS.y);
   actors.addChild(totem);
+
+  // The glowing segment marks the active scale; it climbs as the totem clicks.
+  const glow = Sprite.from(assets.frame('totem_glow.png', 0, 0));
+  glow.anchor.set(0.5);
+  glow.scale.set(2);
+  glow.blendMode = 'add';
+  glow.x = TOTEM_POS.x;
+  actors.addChild(glow);
+  const setTotemGlow = (notch: number): void => {
+    glow.y = TOTEM_POS.y - (notch + 0.5) * TOTEM_SEGMENT;
+  };
+  setTotemGlow(session.scaleIndex);
 
   const banner = Sprite.from(assets.frame('wind_banner.png', 0, 0));
   banner.anchor.set(0.5, 1);
@@ -80,16 +107,18 @@ export function buildScene(app: Application, assets: AssetLibrary, session: Sess
   censer.position.set(2660, 620);
   actors.addChild(censer);
 
-  // The seeded sleepers come from the shared session, so what the player sees
-  // matches what the conductor plays.
-  const asleep = session.asleep;
-
   const spirits = new Map<SpiritId, Sprite>();
+  const talismans = new Map<SpiritId, Sprite>();
+  const awake = new Map<PlayableId, boolean>();
   for (const id of PLAYABLE_SPIRITS) {
     if (id === 'world') continue;
-    const spot = SPIRIT_SPOTS[id as Exclude<SpiritId, 'world'>];
-    const pose = asleep.has(id) ? 'asleep' : 'playing';
-    const sprite = Sprite.from(assets.animation(`spirit_${id}.png`, pose)[0]!);
+    const pid = id as PlayableId;
+    const spot = SPIRIT_SPOTS[pid];
+    const isAwake = !session.asleep.has(id);
+    awake.set(pid, isAwake);
+    const sprite = Sprite.from(
+      assets.animation(`spirit_${id}.png`, isAwake ? 'playing' : 'asleep')[0]!,
+    );
     sprite.anchor.set(0.5, FOOT_ANCHOR);
     sprite.scale.set(SPIRIT_SCALE);
     sprite.position.set(spot.x, spot.y);
@@ -101,6 +130,7 @@ export function buildScene(app: Application, assets: AssetLibrary, session: Sess
     talisman.scale.set(2);
     talisman.position.set(spot.x + 90, spot.y + 26);
     actors.addChild(talisman);
+    talismans.set(id, talisman);
   }
 
   const fire = Sprite.from(assets.frame('fire_base.png', 0, 0));
@@ -135,7 +165,6 @@ export function buildScene(app: Application, assets: AssetLibrary, session: Sess
     const vh = app.renderer.height;
     const scale = Math.max(vh / WORLD_H, vw / (WORLD_W - DRIFT_MARGIN));
     world.scale.set(scale);
-    // Centre the fire horizontally; the mobile crop keeps the hearth in view.
     world.x = vw / 2 - FIRE_SPOT.x * scale;
     world.y = vh - WORLD_H * scale;
     caption.style.fontSize = Math.max(20, Math.min(vw, vh) * 0.045);
@@ -144,11 +173,33 @@ export function buildScene(app: Application, assets: AssetLibrary, session: Sess
   layout();
   app.renderer.on('resize', layout);
 
+  // Make every diegetic control hittable; the pointer layer attaches handlers.
+  for (const target of [
+    totem,
+    banner,
+    censer,
+    moon,
+    fire,
+    ...spirits.values(),
+    ...talismans.values(),
+  ]) {
+    target.eventMode = 'static';
+    target.cursor = 'pointer';
+  }
+
   const handles: SceneHandles = {
     world,
     spirits,
-    asleep,
+    talismans,
+    totem,
+    moon,
+    censer,
+    banner,
     fire,
+    moonPositionFromWorldX: (worldX) => {
+      const t = (worldX - 350) / (WORLD_W - 700);
+      return Math.max(0, Math.min(11, Math.round(t * 11)));
+    },
     ignited: false,
     ignite: () => {
       if (handles.ignited) return;
@@ -167,12 +218,48 @@ export function buildScene(app: Application, assets: AssetLibrary, session: Sess
     },
   };
 
-  // The fire is the one live control in phase 0: the ignition gesture.
-  fire.eventMode = 'static';
-  fire.cursor = 'pointer';
-  fire.on('pointertap', handles.ignite);
+  // --- visual feedback: the scene answers control and wake events ---
 
-  // The caption breathes, unless the visitor prefers reduced motion.
+  let windLevel = 0;
+  let censerBpm = session.bpm;
+  let bannerFrame = 0;
+  let swing = 0;
+
+  bus.subscribe('control', (e) => {
+    if (e.target === 'totem') setTotemGlow(((Math.round(e.value) % 7) + 7) % 7);
+    else if (e.target === 'moon') placeMoon(moon, e.value);
+    else if (e.target === 'wind') windLevel = Math.round(e.value);
+    else if (e.target === 'censer') censerBpm = e.value;
+    else if (e.target === 'fire') {
+      const frame = Math.min(5, Math.max(0, Math.round(((e.value - 0.35) / 0.65) * 5)));
+      fire.texture = assets.frame('fire_base.png', frame, 0);
+    }
+  });
+
+  bus.subscribe('wake', (e) => {
+    if (e.spirit === 'world') return;
+    const sprite = spirits.get(e.spirit);
+    if (!sprite) return;
+    awake.set(e.spirit as PlayableId, e.awake);
+    // The wake or sleep transition plays once; phase 4 advances it on events.
+    sprite.texture = assets.animation(`spirit_${e.spirit}.png`, e.awake ? 'playing' : 'asleep')[0]!;
+  });
+
+  // The censer swings to the beat; the banner flutters with the wind.
+  if (!reducedMotion) {
+    const bannerSpeeds = [0.04, 0.13, 0.28];
+    app.ticker.add(() => {
+      const dt = app.ticker.deltaMS / 1000;
+      // Pendulum: one full sweep every two beats, crossing centre on the beat.
+      const omega = Math.PI / secondsPerBeat(censerBpm);
+      swing += dt * omega;
+      censer.rotation = Math.sin(swing) * 0.16;
+      bannerFrame = (bannerFrame + dt * (bannerSpeeds[windLevel] ?? 0.04) * 6) % 6;
+      banner.texture = assets.frame('wind_banner.png', Math.floor(bannerFrame), 0);
+    });
+  }
+
+  // The caption breathes until the fire is stoked.
   if (!reducedMotion) {
     let phase = 0;
     app.ticker.add(() => {
@@ -194,7 +281,7 @@ function setGrade(filter: ColorMatrixFilter, t: number): void {
 
 /** Twelve stops along the sky arc; the moon rises toward the centre. */
 function placeMoon(moon: Sprite, position: number): void {
-  const t = position / 11;
+  const t = Math.max(0, Math.min(11, position)) / 11;
   const x = 350 + t * (WORLD_W - 700);
   const y = 520 - Math.sin(t * Math.PI) * 330;
   moon.position.set(x, y);
