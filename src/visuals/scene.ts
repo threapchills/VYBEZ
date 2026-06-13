@@ -442,10 +442,145 @@ export function buildScene(
     }
   }
 
+  // --- diegetic affordance and feedback ---
+  // Every control wears a soft warm glow so it reads as touchable; it brightens
+  // on hover, bounces on press, and flares when its value actually changes, so
+  // cause and effect are unmistakable. The covenant forbids a HUD, so this is
+  // how the valley says "touch me" and "you did that" without a word.
+
+  const glowTex = makeSoftDot();
+  const glowLayer = new Container();
+  glowLayer.blendMode = 'add';
+  world.addChildAt(glowLayer, world.getChildIndex(actors));
+
+  interface Fb {
+    obj: Sprite;
+    glow: Sprite;
+    base: number;
+    offX: number;
+    offY: number;
+    phase: number;
+    hover: number;
+    press: number;
+    flare: number;
+  }
+  const fbByObj = new Map<Sprite, Fb>();
+  const fbList: Fb[] = [];
+  const addFb = (obj: Sprite): void => {
+    const w = obj.width;
+    const h = obj.height;
+    const offX = w * (0.5 - obj.anchor.x);
+    const offY = h * (0.5 - obj.anchor.y);
+    const glow = new Sprite(glowTex);
+    glow.anchor.set(0.5);
+    glow.position.set(obj.x + offX, obj.y + offY);
+    glow.scale.set((Math.max(w, h) * 1.8) / glowTex.width);
+    glow.alpha = 0;
+    glowLayer.addChild(glow);
+    const fb: Fb = {
+      obj,
+      glow,
+      base: obj.scale.x,
+      offX,
+      offY,
+      phase: Math.random() * 6.28,
+      hover: 0,
+      press: 0,
+      flare: 0,
+    };
+    fbByObj.set(obj, fb);
+    fbList.push(fb);
+    obj.on('pointerover', () => (fb.hover = 1));
+    obj.on('pointerout', () => {
+      fb.hover = 0;
+      fb.press = 0;
+    });
+    obj.on('pointerdown', () => (fb.press = 1));
+    obj.on('pointerup', () => (fb.press = 0));
+    obj.on('pointerupoutside', () => (fb.press = 0));
+  };
+  for (const obj of [
+    totem,
+    moon,
+    censer,
+    banner,
+    fire,
+    ...spirits.values(),
+    ...talismans.values(),
+  ]) {
+    addFb(obj);
+  }
+  const flare = (obj: Sprite | undefined): void => {
+    const fb = obj && fbByObj.get(obj);
+    if (fb) fb.flare = 1;
+  };
+
+  // A change to any control flares its object so the touch reads as effective.
+  let lastFire = curFire;
+  bus.subscribe('control', (e) => {
+    if (e.target === 'totem') flare(totem);
+    else if (e.target === 'moon') flare(moon);
+    else if (e.target === 'censer') flare(censer);
+    else if (e.target === 'wind') flare(banner);
+    else if (e.target === 'fire') {
+      flare(fire);
+      if (e.value > lastFire + 0.001 && !reducedMotion) {
+        particles.emit('drum', fire.x, fire.y - 80, {
+          tint: accentTint,
+          velocity: 1,
+          fire: e.value,
+        });
+      }
+      lastFire = e.value;
+    } else if (e.target.startsWith('busy:')) flare(spirits.get(e.target.slice(5) as SpiritId));
+    else if (e.target.startsWith('timbre:')) flare(talismans.get(e.target.slice(7) as SpiritId));
+  });
+  bus.subscribe('wake', (e) => flare(spirits.get(e.spirit)));
+
+  // Once the fire is lit, a beckoning shimmer travels the controls in turn,
+  // teaching the eye where the valley can be touched.
+  let guided = false;
+  app.ticker.add(() => {
+    if (handles.ignited && !guided) {
+      guided = true;
+      fbList.forEach((fb, i) => {
+        window.setTimeout(() => (fb.flare = Math.max(fb.flare, 1)), 500 + i * 150);
+      });
+    }
+    const t = app.ticker.lastTime / 1000;
+    for (const fb of fbList) {
+      fb.press *= 0.82;
+      fb.flare *= 0.9;
+      const idle = handles.ignited ? 0.1 + 0.05 * Math.sin(t * 1.6 + fb.phase) : 0;
+      fb.glow.alpha = Math.min(0.95, idle + fb.hover * 0.28 + fb.press * 0.4 + fb.flare * 0.65);
+      fb.glow.tint = accentTint;
+      fb.glow.position.set(fb.obj.x + fb.offX, fb.obj.y + fb.offY);
+      fb.obj.scale.set(fb.base * (1 + fb.press * 0.06 + fb.flare * 0.05 + fb.hover * 0.03));
+    }
+  });
+
   return handles;
 }
 
 const BANNER_SPEEDS = [0.04, 0.13, 0.28];
+
+/** A soft round dot for the control glows, white so it can take any tint. */
+function makeSoftDot(): Texture {
+  const size = 128;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  if (ctx) {
+    const g = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+    g.addColorStop(0, 'rgba(255,255,255,0.9)');
+    g.addColorStop(0.45, 'rgba(255,255,255,0.3)');
+    g.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, size, size);
+  }
+  return Texture.from(canvas);
+}
 
 /** t = 0 is the dim unlit valley; t = 1 hands over to the palette grade. */
 function setIgniteGrade(filter: ColorMatrixFilter, t: number): void {

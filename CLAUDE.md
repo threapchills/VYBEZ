@@ -83,6 +83,14 @@ TypeScript strict, Vite, PixiJS v8, Vitest. No other runtime dependencies.
 - Performance sits within budget by construction: modal banks are cheap two-pole resonators, the particle field is a fixed pool of 420, and the onset budget caps simultaneity. Desktop tabs keep playing in the background; mobile resumes audio cleanly on visibilitychange.
 - Remaining and deliberately left to Mike: dialling the patch macro curves in by ear with the `?dev=1` rig (the curves sweep wide and musical but are first-pass by reason). Known low-priority debt: voice stealing restarts immediately rather than riding the 5 ms steal fade; the onset ramp already declicks it, so it only matters under heavy polyphony pressure.
 
+## Interaction feel pass (post phase 6)
+
+Mike's report: as a user it felt static, clicks seemed to do nothing, controls were not apparent. Root causes and fixes:
+
+- Half the controls were drag-only (moon, censer, talismans), so a click did nothing. Now every control answers a tap as well: the moon steps the root, the censer steps the tempo a notch, a talisman steps the timbre; dragging still gives continuous control. Tap handlers guard against firing at the end of a drag via the shared `drag.moved` flag.
+- No affordance and no feedback. The scene now gives every control a soft additive glow (warm, palette-tinted) that gently pulses so it reads as touchable, brightens on hover, bounces on press, and flares when its value actually changes. A one-time beckoning shimmer travels the controls just after ignition to teach the eye where to touch. All diegetic; no HUD, per Mike's choice.
+- Testing blind spot that let this slip: synthetic DOM PointerEvents dispatched on the canvas do NOT drive Pixi v8's event system, so every prior "controls work" check fired events straight at sprites via `sprite.emit('pointertap')`, which exercises handler logic but skips real hit-testing. Real-user ignition proves the DOM-to-Pixi hop works; `emit` proves the handler-to-bus-to-audio path. Verify both halves separately; never assume `emit` covers real input.
+
 ## Style covenant
 
 British spelling. Sentence case headings. No em dashes anywhere: use colons, semicolons, en dashes with spaces, or hyphens. Plain verbs in user-facing strings. The only in-fiction caption is "stoke the fire". No persistence of any kind; the valley keeps its secrets.
