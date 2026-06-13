@@ -41,12 +41,13 @@ async function boot(): Promise<void> {
     console.warn(`${assets.placeholderCount()} assets running on placeholders`);
   }
 
-  const handles = buildScene(app, assets, session);
-
-  // The ignition gesture doubles as the browser's audio unlock. The pointer
-  // module takes ownership of all interaction in phase 3.
+  // The engine exists before the scene so the scene can read its clock; the
+  // onset-locked animation fires each strike on the note's own AudioContext
+  // time, keeping image and sound in lockstep.
   const engine = new Engine(rng.fork('audio'));
   const conductor = new Conductor(session, rng.fork('conductor'));
+
+  const handles = buildScene(app, assets, session, () => engine.now());
 
   // The tuning rig is dev-only and excluded from the user experience.
   if (isDevMode()) mountRig(engine);

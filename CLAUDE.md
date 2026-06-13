@@ -59,9 +59,13 @@ TypeScript strict, Vite, PixiJS v8, Vitest. No other runtime dependencies.
 - Visual feedback added now: the totem glow climbs one segment per scale notch, the moon walks the arc, the banner flutters at a wind-dependent speed, the censer swings with a period tracking the tempo, spirits swap pose on wake. Onset-locked playing frames, parallax and particles are still phase 4.
 - The fire decays toward its 0.35 floor via a 1 Hz tick in the pointer layer that republishes the cooling value; a full blaze is most of the way back in about three minutes.
 
-## Leaf module authored ahead of its phase
+## Phase 4 decisions
 
-- `src/visuals/palette.ts` (phase 4): the seven scale ramps and pure colour maths, gates green but not yet wired. Moon position maps to a hue rotation clamped to +-25 degrees; the fire warms the three midtone stops; `lerpRamp` drives the section-turn ease; `toTint` hands Pixi a 0xRRGGBB integer. The conductor already broadcasts `palette` events for it to consume.
+- Image is bound to sound through the shared clock, not a second timeline. The scene takes the engine's `now()`; note events arrive on the bus during the conductor's lookahead and are queued, then each spirit's strike fires when `now()` reaches the note's own time, so the contact frame lands on the beat. The engine is therefore constructed before the scene in `main.ts`.
+- Spirit animation is a small state machine per spirit (asleep loop, idle sway, one-shot strike across the playing row, wake/sleep transition across the waking row). The strike runs over `min(0.5 s, note duration)`. Fervent rows are not used yet.
+- Particles (`src/visuals/particles.ts`): one pooled field of 420 soft additive dots, tinted to the live palette accent, with a per-spirit signature (Drum embers, Rattle glints, Root ripples, Voice rising motes scaled by pitch, Echo paired motes, Spinner orbiting sparks, Breath fog). Emission gain scales with fire and note velocity.
+- Palette is wired: the conductor broadcasts `palette` on totem/moon/fire changes; the scene grades the whole world with a ColorMatrix hue rotation clamped to +-25 degrees (`palette.ts`) plus a fire-driven brightness and saturation lift, and feeds the particle accent tint. The ignite grade hands the filter over to the palette grade once lit.
+- Parallax is a slow sine ping-pong, depth-scaled per layer (sky 18 to foreground 190 world units), with the moon drifting a little; the camera breathes 1.0 to 1.015 with the fire; Drum and Root onsets nudge the foreground with a spring return. All of this stills under prefers-reduced-motion, but onset animation and particles stay.
 
 ## Style covenant
 
