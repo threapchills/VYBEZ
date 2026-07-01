@@ -4,6 +4,7 @@ import type { NoteEvent, SectionEvent } from '../core/contracts';
 import { Rng } from '../core/rng';
 import { createSession } from '../core/session';
 import { Conductor, LANES } from './conductor';
+import { scaleTones } from './scales';
 
 // The covenant under test: one scale one root one clock (rule 1), chord-tone
 // gravity on strong beats (rule 2), register lanes (rule 3), the onset
@@ -107,7 +108,7 @@ describe('conductor', () => {
     for (const attacks of bySlot.values()) {
       const hasDrum = attacks.some((e) => e.spirit === 'drum');
       const hasRoot = attacks.some((e) => e.spirit === 'root');
-      const cap = hasDrum && hasRoot ? 4 : 3;
+      const cap = hasDrum && hasRoot ? 5 : 4;
       expect(attacks.length).toBeLessThanOrEqual(cap);
     }
   });
@@ -131,11 +132,69 @@ describe('conductor', () => {
     }
   });
 
-  it('sleepers stay silent', () => {
-    const { session } = run(21, 30);
-    for (const n of notes) {
-      expect(session.asleep.has(n.spirit)).toBe(false);
+  it('all seven spirits sound within the first bars', () => {
+    // The opening is composed: everyone has entered by bar six.
+    run(21, 40);
+    const sounded = new Set(notes.map((n) => n.spirit));
+    for (const id of ['drum', 'rattle', 'root', 'voice', 'echo', 'spinner', 'breath']) {
+      expect(sounded.has(id as (typeof notes)[number]['spirit'])).toBe(true);
     }
+  });
+
+  it('the voice repeats itself: phrase openings share the motif rhythm', () => {
+    // A composed line repeats; pure dice never would. Bars 8 and 10 open the
+    // statement and varied-repeat phrases of the same motif (past the intro),
+    // so their onset slots should largely coincide.
+    const { slotOf } = run(17, 50);
+    const slotsOfBar = (bar: number): Set<number> =>
+      new Set(
+        notes
+          .filter((n) => n.spirit === 'voice')
+          .map((n) => slotOf(n.time))
+          .filter((s) => s >= bar * 16 && s < bar * 16 + 16)
+          .map((s) => s % 16),
+      );
+    const a = slotsOfBar(8);
+    const b = slotsOfBar(10);
+    const shared = [...a].filter((s) => b.has(s));
+    expect(a.size).toBeGreaterThan(2);
+    expect(shared.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it('a sky strum rings in the scale, never a wrong note', () => {
+    const rng = new Rng(12);
+    const session = createSession(rng.fork('session'));
+    const conductor = new Conductor(session, rng.fork('conductor'));
+    conductor.start(() => 0);
+    conductor.stop();
+    notes.length = 0;
+    conductor.handleControl({ target: 'strum', value: 0.5, y: 0.3 });
+    const strums = notes.filter((n) => n.spirit === 'spinner');
+    expect(strums.length).toBe(1);
+    const scale = new Set(scaleTones(session.scaleIndex, session.moonPosition));
+    expect(scale.has((((strums[0]?.midi ?? 0) % 12) + 12) % 12)).toBe(true);
+  });
+
+  it('stoking to a blaze holds the breath then drops a tutti', () => {
+    const rng = new Rng(9);
+    const session = createSession(rng.fork('session'));
+    const conductor = new Conductor(session, rng.fork('conductor'));
+    conductor.start(() => 0);
+    conductor.stop();
+    for (let t = 0; t < 30; t += 0.025) conductor.tick(t);
+    const slotDur = 60 / session.bpm / 4;
+    const armBar = Math.floor((conductor as unknown as { slot: number }).slot / 16);
+    conductor.handleControl({ target: 'fire', value: 1 });
+    const blazeBar = armBar + 1;
+    for (let t = 30; t < 30 + slotDur * 48; t += 0.025) conductor.tick(t);
+    const slotOf = (time: number): number => Math.round((time - GRID_START) / slotDur);
+    const inBlaze = notes.filter(
+      (n) => n.spirit === 'drum' && Math.floor(slotOf(n.time) / 16) === blazeBar,
+    );
+    const firstHalf = inBlaze.filter((n) => slotOf(n.time) % 16 < 8);
+    const downbeat = inBlaze.filter((n) => slotOf(n.time) % 16 === 8 && n.velocity > 0.9);
+    expect(firstHalf.length).toBe(0);
+    expect(downbeat.length).toBeGreaterThan(0);
   });
 
   it('the totem changes the scale live', () => {
@@ -189,14 +248,42 @@ describe('conductor', () => {
     expect(controls.length).toBeGreaterThan(0);
   });
 
-  it('stillness publishes no autonomous control', () => {
+  it('stillness freezes autonomous drift', () => {
     const controls: Array<{ target: string }> = [];
     offs.push(bus.subscribe('control', (e) => controls.push(e)));
     const rng = new Rng(4);
     const session = createSession(rng.fork('session'));
     const conductor = new Conductor(session, rng.fork('conductor'));
-    // Wind defaults to still; the valley should only evolve when asked to.
+    // Still is a choice now, not the default: ask for it, then nothing drifts.
+    conductor.handleControl({ target: 'wind', value: 0 });
     for (let t = 0; t < 240; t += 0.025) conductor.tick(t);
     expect(controls.length).toBe(0);
+  });
+
+  it('the default breeze drifts the valley on its own', () => {
+    const controls: Array<{ target: string }> = [];
+    offs.push(bus.subscribe('control', (e) => controls.push(e)));
+    const rng = new Rng(4);
+    const session = createSession(rng.fork('session'));
+    const conductor = new Conductor(session, rng.fork('conductor'));
+    for (let t = 0; t < 240; t += 0.025) conductor.tick(t);
+    expect(controls.length).toBeGreaterThan(0);
+  });
+
+  it('a control change answers with an immediate audible gesture', () => {
+    const rng = new Rng(6);
+    const session = createSession(rng.fork('session'));
+    const conductor = new Conductor(session, rng.fork('conductor'));
+    conductor.start(() => 1);
+    conductor.stop();
+    notes.length = 0;
+    conductor.handleControl({ target: 'totem', value: 3 });
+    // The totem answers with three rising tines in the new scale.
+    expect(notes.filter((n) => n.spirit === 'spinner').length).toBe(3);
+    notes.length = 0;
+    conductor.handleControl({ target: 'moon', value: 7 });
+    expect(notes.some((n) => n.spirit === 'root' && n.midi !== undefined && n.midi % 12 === 7)).toBe(
+      true,
+    );
   });
 });

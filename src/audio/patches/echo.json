@@ -1,6 +1,11 @@
 {
   "brightness": 0.5,
   "pressure": 0.7,
+  "trem": 0.18,
+  "tremRate": 3.4,
   "pan": 0.22,
-  "gain": 0.45
+  "gain": 0.6,
+  "revA": 0.45,
+  "revB": 0.2,
+  "dly": 0.3
 }

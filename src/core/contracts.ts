@@ -38,16 +38,28 @@ export interface NoteEvent {
   duration: number;
   /** Patch-defined articulation hint, e.g. 'ghost', 'accent', 'riser'. */
   articulation?: string;
+  /**
+   * Per-note timbre position, 0 to 1 with 0.5 neutral. The conductor breathes
+   * this with slow seeded drift so no two notes render identically; the worklet
+   * reads it as a deviation around the patch (whose centre the talisman moves).
+   */
+  timbre?: number;
 }
 
 /**
  * A control change from the interaction layer.
- * Targets: 'totem', 'moon', 'censer', 'fire', 'wind',
- * 'busy:<id>', 'timbre:<id>', 'wake:<id>'.
+ * Targets: 'totem', 'moon', 'censer', 'fire', 'wind', 'strum',
+ * 'busy:<id>', 'timbre:<id>', 'space:<id>', 'wake:<id>'.
  */
 export interface ControlEvent {
   target: string;
   value: number;
+  /**
+   * Optional second axis, normalised 0 to 1. The sky harp ('strum') uses it:
+   * value carries the position along the arc (pitch), y the height of the
+   * touch (velocity for the conductor, glint placement for the scene).
+   */
+  y?: number;
 }
 
 /** Broadcast by the conductor at every bar; the harmonic weather every voice draws from. */

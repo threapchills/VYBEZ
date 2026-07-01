@@ -5,6 +5,10 @@
   "hardness": 0.55,
   "position": 0.23,
   "dampTilt": 0.75,
+  "pair": 0.4,
   "pan": 0.18,
-  "gain": 0.5
+  "gain": 0.72,
+  "revA": 0.35,
+  "revB": 0.2,
+  "dly": 0.45
 }

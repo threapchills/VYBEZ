@@ -70,6 +70,7 @@ async function boot(): Promise<void> {
     engine
       .unlock()
       .then(() => {
+        engine.setTempo(session.bpm);
         conductor.start(() => engine.now());
         attachPointer(app, handles, session);
         mute.reveal();

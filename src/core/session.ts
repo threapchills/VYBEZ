@@ -1,5 +1,4 @@
 import type { SpiritId } from './contracts';
-import { PLAYABLE_SPIRITS } from './contracts';
 import type { Rng } from './rng';
 import { BPM_MAX, BPM_MIN, BPM_STEP } from './time';
 
@@ -24,9 +23,10 @@ export interface Session {
 
 export function createSession(rng: Rng): Session {
   const notches = (BPM_MAX - BPM_MIN) / BPM_STEP;
-  const anchor = rng.pick(['root', 'breath'] as const);
-  const candidates = PLAYABLE_SPIRITS.filter((id) => id !== anchor);
-  const asleep = new Set<SpiritId>(rng.shuffle(candidates).slice(0, rng.int(2, 4)));
+  // All seven wake with the fire: the full ensemble is the experience, and a
+  // tap can always send one to sleep. (Overhauled from the seeded 2-4 sleepers,
+  // which left first sessions sounding like three instruments.)
+  const asleep = new Set<SpiritId>();
 
   return {
     scaleIndex: rng.int(0, 6),

@@ -3,6 +3,7 @@ import { bus } from '../core/bus';
 import type { SpiritId } from '../core/contracts';
 import type { Session } from '../core/session';
 import type { SceneHandles } from '../visuals/scene';
+import { WORLD_H, WORLD_W } from '../visuals/scene';
 import {
   busyEvent,
   censerEvent,
@@ -13,6 +14,7 @@ import {
   nextWind,
   snapCenser,
   stokeFire,
+  strumEvent,
   timbreEvent,
   totemEvent,
   windEvent,
@@ -26,9 +28,13 @@ import {
 
 const TAP_SLOP = 6;
 const TIMBRE_STEP = 0.25;
+/** Below this world y the valley floor begins; above it, the sky harp answers. */
+const SKY_MAX_Y = 860;
+/** The harp's strings: sweeping a drag across bands strums them in turn. */
+const STRUM_BANDS = 24;
 
 interface Drag {
-  kind: 'moon' | 'censer' | 'busy' | 'timbre';
+  kind: 'moon' | 'censer' | 'busy' | 'timbre' | 'strum';
   id?: SpiritId;
   startX: number;
   startY: number;
@@ -40,7 +46,8 @@ export function attachPointer(app: Application, handles: SceneHandles, session: 
   let scaleNotch = session.scaleIndex;
   let moonPos = session.moonPosition;
   let bpm = session.bpm;
-  let wind: WindState = 'still';
+  // Breeze by default: the valley evolves unasked; still is a choice, not the start.
+  let wind: WindState = 'breeze';
   let fire = session.fire;
   const busy = new Map<SpiritId, number>();
   const timbre = new Map<SpiritId, number>();
@@ -48,8 +55,11 @@ export function attachPointer(app: Application, handles: SceneHandles, session: 
   for (const id of handles.spirits.keys()) awake.set(id, !session.asleep.has(id));
 
   let drag: Drag | undefined;
+  // The stage stays hittable-through: a hitArea here would swallow every hit
+  // before the sprites are tested (the phase 3 to 6 dead-controls bug). The
+  // scene's backdrop is the catch-all surface instead; global and bubbled
+  // events still reach the stage for drag tracking.
   app.stage.eventMode = 'static';
-  app.stage.hitArea = app.screen;
 
   /** Wrap a tap handler so it never fires at the end of a drag. */
   const tap = (fn: () => void) => () => {
@@ -116,6 +126,33 @@ export function attachPointer(app: Application, handles: SceneHandles, session: 
     beginDrag(sprite, () => ({ kind: 'busy', id, startValue: busy.get(id) ?? 0.6 }));
   }
 
+  // The sky harp: a tap on the open sky rings a tine; a sweep strums the
+  // strings in turn. The backdrop only receives touches no control claimed,
+  // so the controls always win the argument.
+  const strumAt = (e: FederatedPointerEvent): void => {
+    const wp = handles.world.toLocal(e.global);
+    bus.publish(
+      'control',
+      strumEvent(wp.x / WORLD_W, Math.max(0, Math.min(1, wp.y / WORLD_H))),
+    );
+  };
+  handles.backdrop.on('pointertap', (e: FederatedPointerEvent) => {
+    if (drag?.moved) return;
+    const wp = handles.world.toLocal(e.global);
+    if (wp.y < SKY_MAX_Y) strumAt(e);
+  });
+  handles.backdrop.on('pointerdown', (e: FederatedPointerEvent) => {
+    const wp = handles.world.toLocal(e.global);
+    if (wp.y >= SKY_MAX_Y) return;
+    drag = {
+      kind: 'strum',
+      startX: e.global.x,
+      startY: e.global.y,
+      startValue: Math.floor((wp.x / WORLD_W) * STRUM_BANDS),
+      moved: false,
+    };
+  });
+
   // Talismans: tap steps the timbre; drag morphs it continuously.
   for (const [id, sprite] of handles.talismans) {
     sprite.on(
@@ -173,6 +210,16 @@ export function attachPointer(app: Application, handles: SceneHandles, session: 
         const v = clamp01(drag.startValue + dx / 220);
         timbre.set(drag.id, v);
         bus.publish('control', timbreEvent(drag.id, v));
+        break;
+      }
+      case 'strum': {
+        // Each band boundary crossed rings the next string.
+        const wp = handles.world.toLocal(e.global);
+        const band = Math.floor((wp.x / WORLD_W) * STRUM_BANDS);
+        if (band !== drag.startValue) {
+          drag.startValue = band;
+          strumAt(e);
+        }
         break;
       }
     }

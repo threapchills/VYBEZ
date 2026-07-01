@@ -1,4 +1,4 @@
-import { Application, ColorMatrixFilter, Container, Sprite, Text, Texture } from 'pixi.js';
+import { Application, ColorMatrixFilter, Container, Rectangle, Sprite, Text, Texture } from 'pixi.js';
 import type { AssetLibrary } from '../assets/loader';
 import type { NoteEvent, SpiritId } from '../core/contracts';
 import { PLAYABLE_SPIRITS } from '../core/contracts';
@@ -14,8 +14,8 @@ import { moonHueRotation, paletteStops, toTint } from './palette';
 // and the palette follows the scale, moon and fire. The same events drive the
 // audio and the visuals, so they can never fall out of step.
 
-const WORLD_W = 3840;
-const WORLD_H = 1440;
+export const WORLD_W = 3840;
+export const WORLD_H = 1440;
 const DRIFT_MARGIN = 800;
 const SPIRIT_SCALE = 2.5;
 const FOOT_ANCHOR = (128 - 12) / 128;
@@ -54,6 +54,12 @@ interface SpiritAnim {
 
 export interface SceneHandles {
   world: Container;
+  /**
+   * The catch-all touch surface behind everything. Never put a hitArea on the
+   * stage: in Pixi v8 it swallows every hit before the children are tested,
+   * which is exactly the bug that deadened every control from phase 3 on.
+   */
+  backdrop: Container;
   spirits: Map<SpiritId, Sprite>;
   talismans: Map<SpiritId, Sprite>;
   totem: Sprite;
@@ -72,6 +78,14 @@ export function buildScene(
   session: Session,
   clock: () => number,
 ): SceneHandles {
+  // The backdrop sits beneath the world and catches every touch that no
+  // control claims: the sky harp lives here. Its hitArea is the live screen
+  // rect, so it follows resizes for free.
+  const backdrop = new Container();
+  backdrop.eventMode = 'static';
+  backdrop.hitArea = app.screen;
+  app.stage.addChild(backdrop);
+
   const world = new Container();
   app.stage.addChild(world);
 
@@ -176,9 +190,23 @@ export function buildScene(
   fire.position.set(FIRE_SPOT.x, FIRE_SPOT.y);
   actors.addChild(fire);
 
+  // Talismans ride above the spirits and the fire: where hit boxes overlap,
+  // the smaller target wins, so a touch lands where the eye aimed.
+  for (const t of talismans.values()) actors.addChild(t);
+
   const foreground = Sprite.from(assets.get('bg_04_foreground.png').texture);
   world.addChild(foreground);
   const layers = [sky, ridge, ruins, glade, foreground];
+
+  // Every decorative object must be eventMode 'none'. Pixi v8 inherits the
+  // stage's interactive mode down the tree, so any full-world sprite that
+  // merely contains the point (the foreground, the glade over the moon, the
+  // totem's glow, a passing particle) would otherwise swallow the hit and
+  // hand it to the stage: the second half of the dead-controls bug.
+  for (const layer of layers) layer.eventMode = 'none';
+  glow.eventMode = 'none';
+  particles.container.eventMode = 'none';
+  particles.container.interactiveChildren = false;
 
   // Pre-ignition grade; after ignition the palette grade takes the filter over.
   const grade = new ColorMatrixFilter();
@@ -195,7 +223,31 @@ export function buildScene(
     },
   });
   caption.anchor.set(0.5);
+  caption.eventMode = 'none';
   app.stage.addChild(caption);
+
+  // The whisper: one soft line naming a control's purpose when it is touched
+  // or hovered, in the caption's own voice. It teaches, then fades; nothing
+  // persists.
+  const whisper = new Text({
+    text: '',
+    style: {
+      fontFamily: 'Georgia, "Times New Roman", serif',
+      fontStyle: 'italic',
+      fill: '#cfc9b8',
+      fontSize: 20,
+    },
+  });
+  whisper.anchor.set(0.5);
+  whisper.alpha = 0;
+  whisper.eventMode = 'none';
+  app.stage.addChild(whisper);
+  let whisperUntil = 0;
+  const showWhisper = (text: string): void => {
+    if (!handles.ignited) return;
+    whisper.text = text;
+    whisperUntil = performance.now() + 2400;
+  };
 
   const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
@@ -224,6 +276,8 @@ export function buildScene(
     world.y = vh - WORLD_H * baseScale;
     caption.style.fontSize = Math.max(20, Math.min(vw, vh) * 0.045);
     caption.position.set(vw / 2, vh * 0.8);
+    whisper.style.fontSize = Math.max(15, Math.min(vw, vh) * 0.028);
+    whisper.position.set(vw / 2, vh * 0.92);
   };
   layout();
   app.renderer.on('resize', layout);
@@ -241,8 +295,31 @@ export function buildScene(
     target.cursor = 'pointer';
   }
 
+  // Hit shapes matched to the visible bodies. A sprite's default hit box is
+  // its whole texture rectangle, transparent pixels included; at these scales
+  // the controls' invisible boxes overlapped their neighbours and stole each
+  // other's clicks. Fractions are of the frame, centred, in local units.
+  const tightHit = (obj: Sprite, wFrac: number, hFrac: number): void => {
+    const w = obj.texture.width;
+    const h = obj.texture.height;
+    obj.hitArea = new Rectangle(
+      -w * obj.anchor.x + (w * (1 - wFrac)) / 2,
+      -h * obj.anchor.y + (h * (1 - hFrac)) / 2,
+      w * wFrac,
+      h * hFrac,
+    );
+  };
+  tightHit(totem, 0.8, 1.0);
+  tightHit(banner, 0.8, 0.9);
+  tightHit(censer, 0.7, 0.9);
+  tightHit(moon, 0.9, 0.9);
+  tightHit(fire, 0.7, 0.85);
+  for (const s of spirits.values()) tightHit(s, 0.5, 0.85);
+  for (const t of talismans.values()) tightHit(t, 0.7, 0.7);
+
   const handles: SceneHandles = {
     world,
+    backdrop,
     spirits,
     talismans,
     totem,
@@ -274,7 +351,8 @@ export function buildScene(
 
   // --- control and wake feedback (phase 3) ---
 
-  let windLevel = 0;
+  // Breeze by default, matching the pointer layer and the conductor.
+  let windLevel = 1;
   let censerBpm = session.bpm;
   let bannerFrame = 0;
   let swing = 0;
@@ -287,7 +365,28 @@ export function buildScene(
     else if (e.target === 'fire') {
       const frame = Math.min(5, Math.max(0, Math.round(((e.value - 0.35) / 0.65) * 5)));
       fire.texture = assets.frame('fire_base.png', frame, 0);
+    } else if (e.target === 'strum' && !reducedMotion) {
+      // A star rings where the sky was touched.
+      particles.emit('strum', e.value * WORLD_W, (e.y ?? 0.3) * WORLD_H, {
+        tint: accentTint,
+        velocity: 0.8,
+        fire: curFire,
+      });
     }
+  });
+
+  // Now and then a star twinkles unbidden, inviting the hand to the sky.
+  let twinkleIn = 6;
+  app.ticker.add(() => {
+    if (!handles.ignited || reducedMotion) return;
+    twinkleIn -= app.ticker.deltaMS / 1000;
+    if (twinkleIn > 0) return;
+    twinkleIn = 5 + Math.random() * 7;
+    particles.emit('strum', 400 + Math.random() * (WORLD_W - 800), 140 + Math.random() * 420, {
+      tint: accentTint,
+      velocity: 0.25,
+      fire: curFire,
+    });
   });
 
   bus.subscribe('palette', (e) => {
@@ -451,6 +550,8 @@ export function buildScene(
   const glowTex = makeSoftDot();
   const glowLayer = new Container();
   glowLayer.blendMode = 'add';
+  glowLayer.eventMode = 'none';
+  glowLayer.interactiveChildren = false;
   world.addChildAt(glowLayer, world.getChildIndex(actors));
 
   interface Fb {
@@ -466,7 +567,7 @@ export function buildScene(
   }
   const fbByObj = new Map<Sprite, Fb>();
   const fbList: Fb[] = [];
-  const addFb = (obj: Sprite): void => {
+  const addFb = (obj: Sprite, label: string): void => {
     const w = obj.width;
     const h = obj.height;
     const offX = w * (0.5 - obj.anchor.x);
@@ -490,26 +591,28 @@ export function buildScene(
     };
     fbByObj.set(obj, fb);
     fbList.push(fb);
-    obj.on('pointerover', () => (fb.hover = 1));
+    obj.on('pointerover', () => {
+      fb.hover = 1;
+      showWhisper(label);
+    });
     obj.on('pointerout', () => {
       fb.hover = 0;
       fb.press = 0;
     });
-    obj.on('pointerdown', () => (fb.press = 1));
+    obj.on('pointerdown', () => {
+      fb.press = 1;
+      showWhisper(label);
+    });
     obj.on('pointerup', () => (fb.press = 0));
     obj.on('pointerupoutside', () => (fb.press = 0));
   };
-  for (const obj of [
-    totem,
-    moon,
-    censer,
-    banner,
-    fire,
-    ...spirits.values(),
-    ...talismans.values(),
-  ]) {
-    addFb(obj);
-  }
+  addFb(totem, 'the totem turns the scale');
+  addFb(moon, 'the moon carries the root');
+  addFb(censer, 'the censer swings the tempo');
+  addFb(banner, 'the banner calls the wind');
+  addFb(fire, 'stoke the fire; it cools on its own');
+  for (const s of spirits.values()) addFb(s, 'tap to hush or wake; drag for busyness');
+  for (const t of talismans.values()) addFb(t, "the talisman bends this spirit's voice");
   const flare = (obj: Sprite | undefined): void => {
     const fb = obj && fbByObj.get(obj);
     if (fb) fb.flare = 1;
@@ -534,6 +637,7 @@ export function buildScene(
       lastFire = e.value;
     } else if (e.target.startsWith('busy:')) flare(spirits.get(e.target.slice(5) as SpiritId));
     else if (e.target.startsWith('timbre:')) flare(talismans.get(e.target.slice(7) as SpiritId));
+    else if (e.target.startsWith('space:')) flare(talismans.get(e.target.slice(6) as SpiritId));
   });
   bus.subscribe('wake', (e) => flare(spirits.get(e.spirit)));
 
@@ -548,6 +652,8 @@ export function buildScene(
       });
     }
     const t = app.ticker.lastTime / 1000;
+    const wantWhisper = performance.now() < whisperUntil ? 0.85 : 0;
+    whisper.alpha += (wantWhisper - whisper.alpha) * 0.08;
     for (const fb of fbList) {
       fb.press *= 0.82;
       fb.flare *= 0.9;

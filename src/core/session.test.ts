@@ -3,13 +3,10 @@ import { Rng } from './rng';
 import { createSession } from './session';
 
 describe('createSession', () => {
-  it('always sleeps 2 to 4 spirits and keeps a tonal anchor awake', () => {
+  it('wakes all seven spirits: the full ensemble is the experience', () => {
     for (let seed = 0; seed < 500; seed++) {
       const s = createSession(new Rng(seed));
-      expect(s.asleep.size).toBeGreaterThanOrEqual(2);
-      expect(s.asleep.size).toBeLessThanOrEqual(4);
-      expect(s.asleep.has('root') && s.asleep.has('breath')).toBe(false);
-      expect(s.asleep.has('world')).toBe(false);
+      expect(s.asleep.size).toBe(0);
     }
   });
 

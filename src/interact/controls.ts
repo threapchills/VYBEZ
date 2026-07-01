@@ -103,3 +103,11 @@ export function busyEvent(spirit: SpiritId, value: number): ControlEvent {
 export function timbreEvent(spirit: SpiritId, value: number): ControlEvent {
   return { target: `timbre:${spirit}`, value: clamp01(value) };
 }
+
+/**
+ * The sky harp: a touch on the open sky, x along the arc (pitch, left low),
+ * y the height of the touch (higher is softer).
+ */
+export function strumEvent(x01: number, y01: number): ControlEvent {
+  return { target: 'strum', value: clamp01(x01), y: clamp01(y01) };
+}

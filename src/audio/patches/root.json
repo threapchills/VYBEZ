@@ -2,5 +2,8 @@
   "brightness": 0.55,
   "subMix": 0.45,
   "pan": -0.08,
-  "gain": 0.8
+  "gain": 0.8,
+  "revA": 0.05,
+  "revB": 0.14,
+  "dly": 0.05
 }

@@ -20,7 +20,15 @@ interface Particle {
   active: boolean;
 }
 
-export type ParticleKind = 'drum' | 'rattle' | 'root' | 'voice' | 'echo' | 'spinner' | 'breath';
+export type ParticleKind =
+  | 'drum'
+  | 'rattle'
+  | 'root'
+  | 'voice'
+  | 'echo'
+  | 'spinner'
+  | 'breath'
+  | 'strum';
 
 export class ParticleField {
   readonly container = new Container();
@@ -136,6 +144,25 @@ export class ParticleField {
           size: [1.6, 3.2],
           life: [3, 6],
           fade: 0.35,
+        });
+        break;
+      case 'strum':
+        // A star rung: quick radial sparks and a lingering rising mote.
+        this.spawn(n(6), x, y, opts.tint, {
+          speed: [40, 200],
+          angle: [-Math.PI, Math.PI],
+          gravity: 12,
+          size: [0.15, 0.4],
+          life: [0.4, 1.0],
+          spin: 4,
+        });
+        this.spawn(2, x, y, opts.tint, {
+          speed: [5, 20],
+          angle: [-Math.PI / 2 - 0.4, -Math.PI / 2 + 0.4],
+          gravity: -12,
+          size: [0.7, 1.1],
+          life: [1.2, 2.0],
+          fade: 0.5,
         });
         break;
     }

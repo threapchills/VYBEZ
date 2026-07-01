@@ -5,6 +5,13 @@
   "vibratoRate": 4.8,
   "attack": 0.02,
   "release": 0.12,
+  "glide": 0.06,
+  "trem": 0.12,
+  "tremRate": 4.2,
+  "unison": 0.5,
   "pan": -0.05,
-  "gain": 0.6
+  "gain": 0.6,
+  "revA": 0.3,
+  "revB": 0.18,
+  "dly": 0.4
 }
